@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kred — Document Previews</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #15131C;
+    --surface: #1E1B27;
+    --line: #34303F;
+    --ink: #F1EEE8;
+    --ink-dim: #A9A3B5;
+    --ink-faint: #6E687C;
+    --brass: #C9A24C;
+    --paper: #FBF9F4;
+    --paper-ink: #221F2B;
+    --paper-dim: #6B6577;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+  }
+  .page { max-width: 1180px; margin: 0 auto; padding: 40px 28px 70px; }
+  header { margin-bottom: 36px; }
+  .brand { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 600; color: var(--brass); margin-bottom: 14px; }
+  h1 { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-dim); font-size: 14.5px; margin: 0; max-width: 520px; }
+
+  .row-label {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink-dim);
+    margin: 46px 0 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .row-label .tag {
+    font-family: 'Inter', sans-serif;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--brass);
+    background: rgba(201,162,76,0.12);
+    border: 1px solid rgba(201,162,76,0.3);
+    padding: 3px 9px;
+    border-radius: 999px;
+  }
+
+  .docs { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+
+  .sheet {
+    background: var(--paper);
+    color: var(--paper-ink);
+    width: 360px;
+    border-radius: 3px;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.55);
+    overflow: hidden;
+  }
+
+  /* ---- CV Template ---- */
+  .cv { padding: 30px 28px; font-family: 'Inter', sans-serif; }
+  .cv .name { font-family: 'Source Serif 4', serif; font-size: 24px; font-weight: 600; margin: 0 0 2px; }
+  .cv .role { font-size: 12.5px; color: var(--paper-dim); letter-spacing: 0.02em; margin: 0 0 12px; }
+  .cv .contact { font-size: 10.5px; color: var(--paper-dim); display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #E3DFD3; }
+  .cv h4 { font-family: 'Space Grotesk', sans-serif; font-size: 10.5px; letter-spacing: 0.06em; color: #9C6B2B; margin: 0 0 9px; text-transform: uppercase; }
+  .cv .entry { margin-bottom: 12px; }
+  .cv .entry-head { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; margin-bottom: 2px; }
+  .cv .entry-sub { font-size: 11px; color: var(--paper-dim); margin-bottom: 4px; }
+  .cv .entry p { font-size: 11.5px; line-height: 1.5; margin: 0; color: #45414F; }
+  .cv .skills { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cv .skill { font-size: 10.5px; background: #F0EBDD; padding: 4px 9px; border-radius: 5px; color: #4A4436; }
+  .cv .sec { margin-bottom: 18px; }
+
+  /* ---- Cover letter ---- */
+  .letter { padding: 34px 30px; font-family: 'Source Serif 4', serif; font-size: 12.5px; line-height: 1.7; color: #2B2735; }
+  .letter .lhead { font-family: 'Inter', sans-serif; font-size: 10.5px; color: var(--paper-dim); margin-bottom: 22px; }
+  .letter .ldate { margin-bottom: 18px; }
+  .letter p { margin: 0 0 12px; }
+  .letter .sign { margin-top: 20px; }
+
+  /* ---- Invoice ---- */
+  .invoice { padding: 30px 28px; font-family: 'Inter', sans-serif; }
+  .invoice .ihead { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
+  .invoice .iname { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; }
+  .invoice .inum { text-align: right; font-size: 11px; color: var(--paper-dim); }
+  .invoice .inum b { color: var(--paper-ink); display: block; font-size: 13px; margin-bottom: 2px; }
+  .invoice .parties { display: flex; justify-content: space-between; font-size: 11px; color: var(--paper-dim); margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #E3DFD3; }
+  .invoice .parties b { display: block; color: var(--paper-ink); font-size: 12px; margin-bottom: 3px; }
+  .invoice table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .invoice th { text-align: left; font-size: 10px; color: var(--paper-dim); font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid #E3DFD3; text-transform: uppercase; letter-spacing: 0.03em; }
+  .invoice td { padding: 9px 0; border-bottom: 1px solid #EFEBDF; }
+  .invoice td:last-child, .invoice th:last-child { text-align: right; }
+  .invoice .total-row td { border-bottom: none; font-weight: 700; padding-top: 12px; }
+  .invoice .stamp { display: inline-block; margin-top: 18px; font-size: 10px; font-weight: 600; color: #6E8F6E; background: #E7EEDF; padding: 4px 10px; border-radius: 5px; }
+
+  /* ---- Slide ---- */
+  .slide-wrap { width: 460px; }
+  .slide {
+    background: var(--paper);
+    color: var(--paper-ink);
+    aspect-ratio: 16/9;
+    border-radius: 3px;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.55);
+    padding: 34px 38px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .slide::before {
+    content: '';
+    position: absolute; top: 0; left: 0; width: 5px; height: 100%;
+    background: #C9A24C;
+  }
+  .slide .eyebrow { font-size: 10.5px; color: var(--paper-dim); font-family: 'Inter', sans-serif; margin-bottom: 10px; }
+  .slide h3 { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 600; margin: 0 0 10px; line-height: 1.2; }
+  .slide p { font-family: 'Inter', sans-serif; font-size: 12px; color: #555063; line-height: 1.6; max-width: 320px; margin: 0; }
+  .slide-foot { display: flex; justify-content: space-between; font-size: 10px; color: var(--ink-faint); margin-top: 8px; padding: 0 2px; }
+
+  @media (max-width: 780px) {
+    .docs { justify-content: center; }
+    .sheet, .slide-wrap { width: 100%; max-width: 360px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="brand">kred.</div>
+    <h1>Document previews</h1>
+    <p class="sub">What Kred actually generates — real layouts, not placeholders, rendered from your uploaded source data.</p>
+  </header>
+
+  <div class="row-label">CV — ATS-optimized<span class="tag">PDF export</span></div>
+  <div class="docs">
+    <div class="sheet cv">
+      <div class="name">Adaeze Nwosu</div>
+      <div class="role">Backend Engineer</div>
+      <div class="contact"><span>adaeze.nwosu@mail.com</span><span>+234 801 234 5678</span><span>Abuja, NG</span></div>
+
+      <div class="sec">
+        <h4>Experience</h4>
+        <div class="entry">
+          <div class="entry-head"><span>Senior Backend Engineer</span><span>2023 — Present</span></div>
+          <div class="entry-sub">Paystack · Lagos</div>
+          <p>Led migration of payment services to event-driven architecture, cutting latency by 40%.</p>
+        </div>
+        <div class="entry">
+          <div class="entry-head"><span>Backend Engineer</span><span>2020 — 2023</span></div>
+          <div class="entry-sub">Flutterwave · Lagos</div>
+          <p>Built and maintained core settlement APIs serving 2M+ daily transactions.</p>
+        </div>
+      </div>
+
+      <div class="sec">
+        <h4>Skills</h4>
+        <div class="skills">
+          <span class="skill">Node.js</span><span class="skill">PostgreSQL</span><span class="skill">Kafka</span><span class="skill">AWS</span><span class="skill">Go</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="sheet cv">
+      <div class="name" style="font-family: 'Space Grotesk', sans-serif; font-weight:700;">Adaeze Nwosu</div>
+      <div class="role" style="color:#9C6B2B;">PRODUCT DESIGNER</div>
+      <div class="contact"><span>adaeze.design@mail.com</span><span>Portfolio ↗</span></div>
+      <div class="sec">
+        <h4>Selected work</h4>
+        <div class="entry">
+          <div class="entry-head"><span>Lead Designer</span><span>2022 — Now</span></div>
+          <div class="entry-sub">Kameleon Studio</div>
+          <p>Designed a component library used across 30+ client sites, shipped a live theming editor.</p>
+        </div>
+      </div>
+      <div class="sec">
+        <h4>Tools</h4>
+        <div class="skills"><span class="skill">Figma</span><span class="skill">Framer</span><span class="skill">React</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row-label">Cover letter<span class="tag">PDF export</span></div>
+  <div class="docs">
+    <div class="sheet letter">
+      <div class="lhead">Adaeze Nwosu · adaeze.nwosu@mail.com · +234 801 234 5678</div>
+      <div class="ldate">September 26, 2026</div>
+      <p><b>Hiring Team, Kestrel Labs</b></p>
+      <p>I'm writing to apply for the Backend Engineer role at Kestrel Labs. Over the past four years building payment infrastructure at scale, I've focused on the same problem your team is solving: making financial systems fast and dependable under real load.</p>
+      <p>At Paystack, I led the migration to an event-driven architecture that cut latency by 40% — the kind of systems-level thinking I'd bring to your team from day one.</p>
+      <div class="sign">Best,<br>Adaeze</div>
+    </div>
+  </div>
+
+  <div class="row-label">Invoice<span class="tag">PDF export</span></div>
+  <div class="docs">
+    <div class="sheet invoice">
+      <div class="ihead">
+        <div class="iname">Kameleon Studio</div>
+        <div class="inum"><b>#INV-0091</b>Issued Sep 26, 2026</div>
+      </div>
+      <div class="parties">
+        <div><b>Bill to</b>Hive Fitness Co.<br>Lagos, NG</div>
+        <div style="text-align:right;"><b>Due</b>Oct 10, 2026</div>
+      </div>
+      <table>
+        <tr><th>Item</th><th>Qty</th><th>Amount</th></tr>
+        <tr><td>Web design — homepage</td><td>1</td><td>₦280,000</td></tr>
+        <tr><td>Component library setup</td><td>1</td><td>₦150,000</td></tr>
+        <tr><td>Revisions (2 rounds)</td><td>2</td><td>₦40,000</td></tr>
+        <tr class="total-row"><td colspan="2">Total</td><td>₦470,000</td></tr>
+      </table>
+      <div class="stamp">Not yet paid</div>
+    </div>
+  </div>
+
+  <div class="row-label">Presentation slide<span class="tag">PPTX export</span></div>
+  <div class="docs">
+    <div class="slide-wrap">
+      <div class="slide">
+        <div class="eyebrow">Kestrel Labs · Pitch deck</div>
+        <h3>Payments infrastructure built for African markets</h3>
+        <p>Sub-second settlement, local rail support, and a single API across 9 currencies.</p>
+      </div>
+      <div class="slide-foot"><span>Slide 1 of 12</span><span>kred.</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

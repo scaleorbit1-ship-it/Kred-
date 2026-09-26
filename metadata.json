@@ -1,0 +1,8 @@
+{
+  "name": "Remix Remix KRED - AI-Powered Sovereign Credential Wallet",
+  "description": "Securely store, organize, understand, and assemble application packages from your critical credentials, IDs, certificates, and records with zero-knowledge AI intelligence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

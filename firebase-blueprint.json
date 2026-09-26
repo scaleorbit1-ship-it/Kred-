@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User sovereign profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["student", "professional", "institution"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "email"]
+    },
+    "Credential": {
+      "title": "Credential",
+      "description": "Encrypted credential record in sovereign vault",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "issuer": { "type": "string" },
+        "purpose": { "type": "string" },
+        "status": { "type": "string" },
+        "dateAdded": { "type": "string" }
+      },
+      "required": ["id", "name", "type", "issuer"]
+    },
+    "ChatThread": {
+      "title": "ChatThread",
+      "description": "AI Audit conversation thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "messages": { "type": "array" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Primary user profile document"
+    },
+    "/users/{userId}/credentials/{credId}": {
+      "schema": "Credential",
+      "description": "Private encrypted credentials for the user"
+    },
+    "/users/{userId}/threads/{threadId}": {
+      "schema": "ChatThread",
+      "description": "AI audit conversation history for the user"
+    }
+  }
+}

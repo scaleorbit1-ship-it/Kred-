@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kred — Pitch Deck Slides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #15131C;
+    --ink: #F1EEE8;
+    --ink-dim: #A9A3B5;
+    --ink-faint: #6E687C;
+    --brass: #C9A24C;
+    --paper: #FBF9F4;
+    --paper-ink: #221F2B;
+    --paper-dim: #6B6577;
+    --line: #E3DFD3;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    box-sizing: border-box;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Inter', sans-serif; }
+  .page { max-width: 1180px; margin: 0 auto; padding: 40px 28px 70px; }
+  .brand { font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 600; color: var(--brass); margin-bottom: 14px; }
+  h1 { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-dim); font-size: 14.5px; margin: 0 0 40px; max-width: 540px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 22px;
+  }
+  .slide-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .slide-label { font-size: 11.5px; color: var(--ink-faint); font-family: 'Space Grotesk', sans-serif; padding: 0 2px; }
+  .slide {
+    background: var(--paper);
+    color: var(--paper-ink);
+    aspect-ratio: 16/9;
+    border-radius: 3px;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.55);
+    padding: 30px 34px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .slide::before { content: ''; position: absolute; top:0; left:0; width:5px; height:100%; background: var(--brass); }
+  .num { position:absolute; bottom:16px; right:20px; font-size: 10px; color: var(--paper-dim); font-family:'Inter'; }
+
+  /* Title slide */
+  .s-title { justify-content: center; }
+  .s-title .eyebrow { font-size: 10.5px; color: var(--paper-dim); margin-bottom: 12px; letter-spacing: 0.03em; }
+  .s-title h2 { font-family: 'Space Grotesk', sans-serif; font-size: 27px; font-weight: 700; margin: 0 0 10px; line-height: 1.15; max-width: 340px; }
+  .s-title .by { font-size: 11.5px; color: var(--paper-dim); }
+
+  /* Problem/Solution */
+  .s-split { justify-content: center; }
+  .s-split .kicker { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #9C6B2B; font-weight: 600; margin-bottom: 10px; }
+  .s-split h3 { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 600; margin: 0 0 10px; line-height:1.3; }
+  .s-split ul { margin: 0; padding-left: 16px; font-size: 11.5px; line-height: 1.8; color: #45414F; }
+
+  /* Chart / market size */
+  .s-chart { justify-content: center; }
+  .s-chart h3 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 16px; }
+  .bars { display: flex; align-items: flex-end; gap: 14px; height: 90px; }
+  .bar { flex: 1; background: linear-gradient(180deg, #D9BB74, #C9A24C); border-radius: 4px 4px 0 0; position: relative; }
+  .bar span { position: absolute; top: -18px; left:0; right:0; text-align:center; font-size: 10px; color: var(--paper-dim); }
+  .bar-labels { display:flex; gap:14px; margin-top:6px; }
+  .bar-labels div { flex:1; text-align:center; font-size: 9.5px; color: var(--paper-dim); }
+
+  /* Product feature grid */
+  .s-features { justify-content: center; }
+  .s-features h3 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 16px; }
+  .feat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .feat { font-size: 11px; }
+  .feat b { display:block; font-family:'Space Grotesk', sans-serif; font-size: 12px; margin-bottom: 3px; }
+  .feat span { color: var(--paper-dim); }
+
+  /* Team */
+  .s-team { justify-content: center; }
+  .s-team h3 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 16px; }
+  .team-row { display: flex; gap: 18px; }
+  .person { flex:1; }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, #C9A24C, #8C7738); margin-bottom: 8px; }
+  .person b { display:block; font-size: 11.5px; }
+  .person span { font-size: 10px; color: var(--paper-dim); }
+
+  /* Quote */
+  .s-quote { justify-content: center; align-items: flex-start; }
+  .s-quote .mark { font-family: 'Space Grotesk', sans-serif; font-size: 40px; color: var(--brass); line-height: 0.5; margin-bottom: 14px; }
+  .s-quote p { font-size: 15px; line-height: 1.5; max-width: 320px; margin: 0 0 12px; font-weight: 500; }
+  .s-quote .who { font-size: 10.5px; color: var(--paper-dim); }
+
+  /* Ask / close */
+  .s-ask { justify-content: center; }
+  .s-ask .kicker { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: #9C6B2B; font-weight: 600; margin-bottom: 10px; }
+  .s-ask h3 { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; margin: 0 0 14px; }
+  .ask-row { display:flex; gap: 22px; }
+  .ask-item b { display:block; font-family:'Space Grotesk', sans-serif; font-size: 15px; }
+  .ask-item span { font-size: 10px; color: var(--paper-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="brand">kred.</div>
+  <h1>Pitch deck slides</h1>
+  <p class="sub">More layouts from the presentation generator — title, problem/solution, market data, product, team, quote, and the ask. Each pulls from the same structured deck data, template swapped per slide type.</p>
+
+  <div class="grid">
+
+    <div class="slide-wrap">
+      <div class="slide-label">01 — Title</div>
+      <div class="slide s-title">
+        <div class="eyebrow">SERIES SEED · SEPTEMBER 2026</div>
+        <h2>Payments infrastructure built for African markets</h2>
+        <div class="by">Kestrel Labs — presented by Adaeze Nwosu</div>
+        <div class="num">1 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">02 — Problem</div>
+      <div class="slide s-split">
+        <div class="kicker">The problem</div>
+        <h3>Cross-border settlement is still slow, expensive, and fragmented</h3>
+        <ul>
+          <li>Average settlement time: 3–5 business days</li>
+          <li>Merchants juggle 4+ separate rail integrations</li>
+          <li>FX spread eats 2–6% of transaction value</li>
+        </ul>
+        <div class="num">2 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">03 — Market size</div>
+      <div class="slide s-chart">
+        <h3>Digital payments volume, West Africa</h3>
+        <div class="bars">
+          <div class="bar" style="height:34%"><span>$12B</span></div>
+          <div class="bar" style="height:52%"><span>$21B</span></div>
+          <div class="bar" style="height:78%"><span>$34B</span></div>
+          <div class="bar" style="height:100%"><span>$47B</span></div>
+        </div>
+        <div class="bar-labels"><div>2023</div><div>2024</div><div>2025</div><div>2026 (proj.)</div></div>
+        <div class="num">3 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">04 — Product</div>
+      <div class="slide s-features">
+        <h3>One API, nine currencies</h3>
+        <div class="feat-grid">
+          <div class="feat"><b>Instant settlement</b><span>Sub-second confirmation on local rails</span></div>
+          <div class="feat"><b>Unified ledger</b><span>Single balance view across markets</span></div>
+          <div class="feat"><b>FX built-in</b><span>Live rates, no manual conversion step</span></div>
+          <div class="feat"><b>Compliance layer</b><span>KYC/AML handled per jurisdiction</span></div>
+        </div>
+        <div class="num">4 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">05 — Team</div>
+      <div class="slide s-team">
+        <h3>Built by people who've shipped this before</h3>
+        <div class="team-row">
+          <div class="person"><div class="avatar"></div><b>Adaeze Nwosu</b><span>CEO · ex-Paystack</span></div>
+          <div class="person"><div class="avatar"></div><b>Tunde Bakare</b><span>CTO · ex-Flutterwave</span></div>
+          <div class="person"><div class="avatar"></div><b>Ngozi Eze</b><span>Head of Ops · ex-Stripe</span></div>
+        </div>
+        <div class="num">5 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">06 — Quote / social proof</div>
+      <div class="slide s-quote">
+        <div class="mark">"</div>
+        <p>Kestrel cut our settlement time from four days to under a minute. It changed how we run cash flow entirely.</p>
+        <div class="who">— Finance Lead, pilot merchant partner</div>
+        <div class="num">6 / 12</div>
+      </div>
+    </div>
+
+    <div class="slide-wrap">
+      <div class="slide-label">07 — The ask</div>
+      <div class="slide s-ask">
+        <div class="kicker">The ask</div>
+        <h3>Raising $2.5M to expand to 4 new markets</h3>
+        <div class="ask-row">
+          <div class="ask-item"><b>$2.5M</b><span>Seed round</span></div>
+          <div class="ask-item"><b>18 mo</b><span>Runway</span></div>
+          <div class="ask-item"><b>4</b><span>New markets</span></div>
+        </div>
+        <div class="num">12 / 12</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
