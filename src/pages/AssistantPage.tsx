@@ -64,6 +64,7 @@ import { dbService, StoredCredential, AgentTask, ClarificationQuestion, Clarific
 import { authService, AuthUser } from '../services/authService';
 import { getAiAuditResponse, detectIntentMode } from '../services/aiChatService';
 import { useTheme } from '../context/ThemeContext';
+import KredCanvasDocumentViewer from '../components/KredCanvasDocumentViewer';
 
 interface AssistantPageProps {
   onNavigate: (page: string) => void;
@@ -1071,63 +1072,121 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         });
       }
 
-      // Open Preview Canvas ONLY if the user explicitly asked to open the canvas
-      const userExplicitlyRequestedCanvas = /\b(open canvas|open in canvas|show canvas|show in canvas|preview canvas|preview in canvas|in canvas|open the canvas)\b/i.test(text);
+      // Open Preview Canvas if the user requested canvas OR asked to generate a deliverable
+      const lowerAnswer = aiResult.answer.toLowerCase();
+      const lowerQuery = text.toLowerCase();
 
-      if (userExplicitlyRequestedCanvas) {
-        const lowerAnswer = aiResult.answer.toLowerCase();
-        const lowerQuery = text.toLowerCase();
+      const isFlashcards =
+        lowerAnswer.includes('flashcard') ||
+        lowerAnswer.includes('study cards') ||
+        lowerQuery.includes('flashcard') ||
+        lowerQuery.includes('flash card') ||
+        lowerQuery.includes('study card') ||
+        lowerQuery.includes('cards') ||
+        (lowerAnswer.includes('front:') && lowerAnswer.includes('back:'));
 
-        const isStudyPlan =
-          lowerAnswer.includes('student study plan') ||
+      const isReceipt =
+        lowerAnswer.includes('receipt') ||
+        lowerAnswer.includes('#rec-') ||
+        lowerAnswer.includes('invoice') ||
+        lowerAnswer.includes('#inv-') ||
+        lowerQuery.includes('receipt') ||
+        lowerQuery.includes('invoice') ||
+        lowerQuery.includes('bill');
+
+      const isSlides =
+        lowerAnswer.includes('presentation slides') ||
+        lowerAnswer.includes('slide 1') ||
+        lowerAnswer.includes('01 — title') ||
+        lowerQuery.includes('slide') ||
+        lowerQuery.includes('presentation') ||
+        lowerQuery.includes('pitch deck');
+
+      const isCv =
+        !isFlashcards &&
+        !isSlides &&
+        !isReceipt &&
+        (lowerAnswer.includes('curriculum vitae') ||
+          lowerAnswer.includes('professional summary') ||
+          lowerAnswer.includes('work experience') ||
+          lowerQuery.includes('cv') ||
+          lowerQuery.includes('resume') ||
+          lowerQuery.includes('curriculum vitae'));
+
+      const isStudyPlan =
+        !isFlashcards &&
+        !isSlides &&
+        !isReceipt &&
+        !isCv &&
+        (lowerAnswer.includes('student study plan') ||
           lowerAnswer.includes('academic roadmap') ||
           lowerQuery.includes('student plan') ||
           lowerQuery.includes('study plan') ||
-          lowerQuery.includes('roadmap');
+          lowerQuery.includes('roadmap'));
 
-        const isCv =
-          !isStudyPlan &&
-          (lowerAnswer.includes('curriculum vitae') ||
-            lowerAnswer.includes('# curriculum') ||
-            lowerQuery.includes('cv') ||
-            lowerQuery.includes('resume'));
+      const isCoverLetter =
+        lowerAnswer.includes('application letter') ||
+        lowerAnswer.includes('statement of purpose') ||
+        lowerQuery.includes('cover letter') ||
+        lowerQuery.includes('statement of purpose') ||
+        lowerQuery.includes('sop');
 
-        const isAssignment =
-          !isStudyPlan &&
-          (lowerAnswer.includes('academic assignment') ||
-            lowerAnswer.includes('coursework blueprint') ||
-            lowerQuery.includes('assignment') ||
-            lowerQuery.includes('coursework') ||
-            lowerQuery.includes('syllabus'));
+      const isDeliverable = isFlashcards || isSlides || isReceipt || isCv || isStudyPlan || isCoverLetter;
 
-        const isCoverLetter =
-          lowerAnswer.includes('application letter') ||
-          lowerAnswer.includes('statement of purpose') ||
-          lowerQuery.includes('cover letter') ||
-          lowerQuery.includes('statement of purpose') ||
-          lowerQuery.includes('sop');
+      const userExplicitlyRequestedCanvas =
+        /\b(canvas|preview|deck|slides|flashcard|flash card|receipt|invoice|cv|resume)\b/i.test(text) ||
+        /\b(open canvas|open in canvas|show canvas|show in canvas|preview canvas|preview in canvas|in canvas|open the canvas|on canvas|in the canvas)\b/i.test(text);
 
-        const isSlides =
-          lowerAnswer.includes('presentation slides') ||
-          lowerAnswer.includes('slide 1') ||
-          lowerQuery.includes('slide') ||
-          lowerQuery.includes('presentation') ||
-          lowerQuery.includes('pitch deck');
+      const isGenerationVerb = /\b(generate|create|make|build|write|draft|show|synthesize|compose)\b/i.test(text);
 
-        const docTitle = isStudyPlan
-          ? 'Student Study Plan & Academic Roadmap'
-          : isCv
-          ? 'Executive Curriculum Vitae (CV)'
-          : isAssignment
-          ? 'Academic Coursework & Study Blueprint'
-          : isCoverLetter
-          ? 'Application Statement of Purpose / Cover Letter'
+      let docTitle = 'Generated Deliverable';
+      if (isFlashcards) {
+        const topicMatch = text.match(/(?:about|for|on|regarding)\s+([a-zA-Z\s]+)/i);
+        const subject = topicMatch ? topicMatch[1].trim() : (aiResult.answer.match(/#+\s*([^\n]+)/)?.[1]?.replace(/flashcards?/i, '').trim() || 'Biology & Science');
+        docTitle = `Study Flashcards: ${subject.charAt(0).toUpperCase() + subject.slice(1)}`;
+      } else if (isSlides) {
+        const topicMatch = text.match(/(?:about|for|on|regarding)\s+([a-zA-Z\s]+)/i);
+        const subject = topicMatch ? topicMatch[1].trim() : (aiResult.answer.match(/#+\s*([^\n]+)/)?.[1]?.replace(/presentation|slides?/i, '').trim() || 'Presentation Overview');
+        docTitle = `Presentation Deck: ${subject.charAt(0).toUpperCase() + subject.slice(1)}`;
+      } else if (isReceipt) {
+        docTitle = 'Official Sales Receipt & Attestation';
+      } else if (isCv) {
+        docTitle = 'Executive Curriculum Vitae (CV)';
+      } else if (isStudyPlan) {
+        docTitle = 'Student Study Plan & Academic Roadmap';
+      } else if (isCoverLetter) {
+        docTitle = 'Application Statement of Purpose / Cover Letter';
+      }
+
+      const shouldOpenCanvas = userExplicitlyRequestedCanvas || (isGenerationVerb && isDeliverable) || effectiveMode === 'agent' || isDeliverable;
+
+      const docType = isSlides
+        ? 'slides'
+        : isFlashcards
+        ? 'flashcards'
+        : isReceipt
+        ? 'receipt'
+        : isStudyPlan
+        ? 'study_plan'
+        : isCv
+        ? 'cv'
+        : isCoverLetter
+        ? 'cover_letter'
+        : 'document';
+
+      if (isDeliverable && !aiResult.answer.startsWith('⚠️')) {
+        aiMsg.actionLabel = isFlashcards
+          ? 'Open Flashcard Deck in Canvas'
           : isSlides
-          ? 'Presentation Slide Deck'
-          : 'Generated Document';
+          ? 'Open Slide Deck in Canvas'
+          : isReceipt
+          ? 'Open Receipt in Canvas'
+          : isCv
+          ? 'Open CV in Canvas'
+          : 'Open Deliverable in Canvas';
+      }
 
-        const docType = isStudyPlan ? 'study_plan' : isCv ? 'cv' : isAssignment ? 'assignment' : isCoverLetter ? 'cover_letter' : isSlides ? 'slides' : 'document';
-
+      if (shouldOpenCanvas && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
         openCanvas(aiResult.answer, docTitle, docType);
       }
 
@@ -1139,12 +1198,12 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       setTimeout(scrollToBottom, 100);
     } catch {
       setIsTyping(false);
-      const fallbackText = `I analyzed your request against your **${credentials.length} verified credentials** on file. All transcripts and prerequisites meet baseline international criteria.`;
+      const fallbackText = `⚠️ Failed to respond. The AI model was unable to process your request. Please check your connection or API key and try again.`;
       if (targetThreadId) {
         dbService.addMessage(targetThreadId, {
           role: 'assistant',
           text: fallbackText,
-          sources: credentials.slice(0, 2).map((c) => c.name),
+          sources: [],
         });
       }
       setTimeout(scrollToBottom, 100);
@@ -1160,43 +1219,15 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
   // Helper to format Markdown content into a clean, printable publication layout
   const renderFormattedDocument = (content: string, docType: string) => {
-    const htmlContent = marked.parse(content, { async: false, breaks: true }) as string;
-
     return (
-      <div id="kred-canvas-print-area" className="p-6 sm:p-10 bg-white rounded-2xl border border-[#E2E1DA] shadow-[0_4px_24px_rgba(0,0,0,0.06)] text-[#18181B] max-w-[780px] mx-auto space-y-5">
-        {/* Printable/Export Header (Clean, elegant publication header without artificial annotations) */}
-        <div className="pb-4 mb-4 border-b border-[#E2E1DA] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center">
-              <KredLogoMark size="default" variant="dark" />
-            </div>
-            <div>
-              <div className="text-[14px] font-bold tracking-tight text-[#18181B]">
-                {docType === 'study_plan'
-                  ? 'Student Study Plan & Academic Roadmap'
-                  : docType === 'cv'
-                  ? 'Curriculum Vitae Dossier'
-                  : docType === 'assignment'
-                  ? 'Academic Coursework Blueprint'
-                  : docType === 'cover_letter'
-                  ? 'Application Statement of Purpose'
-                  : docType === 'slides'
-                  ? 'Presentation Slide Deck'
-                  : 'Document Dossier'}
-              </div>
-              <div className="text-[11px] text-[#71717A]">
-                {effectiveUserName} · {new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Content Rendered via Markdown */}
-        <div
-          className="kred-markdown text-[14px] leading-relaxed text-[#18181B] space-y-3 font-sans"
-          dangerouslySetInnerHTML={{ __html: htmlContent }}
-        />
-      </div>
+      <KredCanvasDocumentViewer
+        content={content}
+        docType={docType}
+        title={canvasDoc?.title || 'Document Dossier'}
+        userName={effectiveUserName}
+        onPrint={handlePrintCanvas}
+        onCopy={handleCopyDoc}
+      />
     );
   };
 
@@ -2948,7 +2979,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       msg.questions.length > 0 && (
                         <div className="mt-3.5 space-y-3 max-w-[640px]">
                           {msg.questions.map((q) => {
-                            const selectedOptionId = questionnaireState[msg.id]?.answers?.[q.id]?.[0];
+                            const selectedOptionId = questionnaireState[msg.id]?.selectedOptions?.[q.id]?.[0];
 
                             return (
                               <div
@@ -2973,7 +3004,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                                           setQuestionnaireState((prev) => ({
                                             ...prev,
                                             [msg.id]: {
-                                              answers: { [q.id]: [opt.id] },
+                                              currentQuestionIndex: 0,
+                                              selectedOptions: { [q.id]: [opt.id] },
                                               isSubmitted: true,
                                             },
                                           }));
@@ -3010,9 +3042,13 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                             </div>
                             <div className="min-w-0">
                               <div className="text-[13px] font-semibold text-[#18181B] truncate">
-                                {msg.text.includes('STUDENT STUDY PLAN') || msg.text.includes('ACADEMIC ROADMAP')
+                                {msg.text.includes('FLASHCARD') || msg.text.includes('Flashcard')
+                                  ? 'Interactive Study Flashcards'
+                                  : msg.text.includes('INVOICE') || msg.text.includes('#INV-')
+                                  ? 'Invoice & Verification Statement'
+                                  : msg.text.includes('STUDENT STUDY PLAN') || msg.text.includes('ACADEMIC ROADMAP')
                                   ? 'Student Study Plan & Roadmap'
-                                  : msg.text.includes('PRESENTATION') || msg.text.includes('Slide 1')
+                                  : msg.text.includes('PRESENTATION') || msg.text.includes('Slide 1') || msg.text.includes('01 — Title')
                                   ? 'Presentation Slide Deck'
                                   : msg.text.includes('CURRICULUM') || msg.text.includes('CV')
                                   ? 'Executive Curriculum Vitae (CV)'
@@ -3031,26 +3067,32 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                const isStudyPlan = msg.text.includes('STUDENT STUDY PLAN') || msg.text.includes('ACADEMIC ROADMAP');
-                                const isSlides = msg.text.includes('PRESENTATION') || msg.text.includes('Slide 1');
-                                const isCv = !isStudyPlan && (msg.text.includes('CURRICULUM') || msg.text.includes('CV'));
-                                const isAssignment = !isStudyPlan && (msg.text.includes('ASSIGNMENT') || msg.text.includes('COURSEWORK'));
-                                const isCoverLetter = msg.text.includes('APPLICATION') || msg.text.includes('STATEMENT OF PURPOSE');
-                                const title = isStudyPlan
-                                  ? 'Student Study Plan & Academic Roadmap'
-                                  : isSlides
+                                const lower = msg.text.toLowerCase();
+                                const isFlashcards = lower.includes('flashcard') || (lower.includes('front:') && lower.includes('back:'));
+                                const isReceipt = lower.includes('receipt') || lower.includes('invoice') || msg.text.includes('#REC-') || msg.text.includes('#INV-');
+                                const isSlides = lower.includes('presentation') || lower.includes('slide 1') || lower.includes('slide') || msg.text.includes('01 — Title');
+                                const isCv = !isFlashcards && !isReceipt && !isSlides && (lower.includes('curriculum vitae') || lower.includes('resume') || lower.includes('executive summary'));
+                                const isStudyPlan = !isFlashcards && !isReceipt && !isSlides && !isCv && (lower.includes('study plan') || lower.includes('academic roadmap'));
+                                const isCoverLetter = lower.includes('application letter') || lower.includes('statement of purpose');
+
+                                const title = isSlides
                                   ? 'Presentation Slide Deck'
+                                  : isFlashcards
+                                  ? 'Interactive Study Flashcards'
+                                  : isReceipt
+                                  ? 'Sales Receipt & Attestation'
+                                  : isStudyPlan
+                                  ? 'Student Study Plan & Academic Roadmap'
                                   : isCv
                                   ? 'Executive Curriculum Vitae (CV)'
-                                  : isAssignment
-                                  ? 'Academic Coursework & Study Blueprint'
                                   : isCoverLetter
                                   ? 'Application Statement of Purpose'
                                   : 'Deliverable Document';
+
                                 openCanvas(
                                   msg.text,
                                   title,
-                                  isStudyPlan ? 'study_plan' : isSlides ? 'slides' : isCv ? 'cv' : isAssignment ? 'assignment' : isCoverLetter ? 'cover_letter' : 'document'
+                                  isSlides ? 'slides' : isFlashcards ? 'flashcards' : isReceipt ? 'receipt' : isStudyPlan ? 'study_plan' : isCv ? 'cv' : isCoverLetter ? 'cover_letter' : 'document'
                                 );
                               }}
                               className="h-8 px-3 rounded-xl bg-[#18181B] hover:bg-[#10C77A] hover:text-[#18181B] text-white text-[12px] font-semibold inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
@@ -3062,17 +3104,23 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                             <button
                               type="button"
                               onClick={() => {
-                                const isSlides = msg.text.includes('PRESENTATION') || msg.text.includes('Slide 1');
-                                const isCv = msg.text.includes('CURRICULUM') || msg.text.includes('CV');
-                                const isAssignment = msg.text.includes('ASSIGNMENT') || msg.text.includes('COURSEWORK');
+                                const lower = msg.text.toLowerCase();
+                                const isSlides = lower.includes('presentation') || lower.includes('slide');
+                                const isCv = lower.includes('curriculum') || lower.includes('resume') || lower.includes('cv');
+                                const isFlashcards = lower.includes('flashcard');
+                                const isReceipt = lower.includes('receipt') || lower.includes('invoice');
+
                                 const title = isSlides
                                   ? 'Presentation Slide Deck'
                                   : isCv
                                   ? 'Executive Curriculum Vitae (CV)'
-                                  : isAssignment
-                                  ? 'Academic Assignment Blueprint'
+                                  : isFlashcards
+                                  ? 'Study Flashcards Deck'
+                                  : isReceipt
+                                  ? 'Receipt Document'
                                   : 'Deliverable Document';
-                                openCanvas(msg.text, title, isSlides ? 'slides' : isCv ? 'cv' : isAssignment ? 'assignment' : 'document');
+
+                                openCanvas(msg.text, title, isSlides ? 'slides' : isCv ? 'cv' : isFlashcards ? 'flashcards' : isReceipt ? 'receipt' : 'document');
                                 setTimeout(() => window.print(), 300);
                               }}
                               className="h-8 px-2.5 rounded-xl bg-white hover:bg-[#F3F2EE] border border-[#E2E1DA] text-[#18181B] text-[11.5px] font-medium inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"

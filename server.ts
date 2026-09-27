@@ -5,6 +5,10 @@ import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
+// Fallback if environment variables were added to .env.example
+if (!process.env.GEMINI_API_KEY && !process.env.HUGGINGFACE_API_KEY) {
+  dotenv.config({ path: '.env.example' });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,105 +19,155 @@ const isProd = process.env.NODE_ENV === 'production';
 
 app.use(express.json());
 
-// System prompt builder for Kred AI Engine (Gemini, NVIDIA NIM & Sovereign Intelligence)
+// System prompt builder for Kred AI Engine (NVIDIA NIM, Hugging Face & Sovereign Intelligence)
 const getSystemPrompt = (mode: 'chat' | 'agent' = 'chat', userContext: string = '', hasCredentials: boolean = false) => {
-  return `You are Kred, a premier sovereign artificial intelligence assistant and credential intelligence engine.
+  return `You are Kred, the AI agent inside Kred — a sovereign credential intelligence and document synthesis platform. Users upload academic and professional credentials into a locally encrypted vault and work with you to verify them, reason about opportunities (admissions, scholarships, hiring, contracting), and synthesize production-grade documents from their own real history.
 
 ════════════════════════════════════════
-AGENT REASONING & MULTI-DOCUMENT DIRECTIVE
+IDENTITY & ROLE
 ════════════════════════════════════════
-When given an agent task, deliverable request, or document build command:
-1. ALWAYS REASON OVER THE GIVEN TASK:
-   - Provide a clear, concise reasoning section at the start:
-     ### 🧠 Sovereign Agent Reasoning
-     • **Goal & Scope**: Clarify the specific deliverable requested (e.g. Student Study Plan, Coursework Blueprint, Cover Letter, Waiver Request, Research Proposal, Slide Deck, or CV).
-     • **Parameters & Alignment**: Connect the task to the user's goals, prerequisites, and sovereign vault credentials.
-     • **Execution Strategy**: Outline the structure and methodology.
-2. DYNAMIC DELIVERABLE SYNTHESIS:
-   - NEVER force or default everything into a CV.
-   - If the user asks for a "student plan", "study plan", or "roadmap", generate a detailed, structured **Student Study Plan & Academic Roadmap** with weekly milestones, learning goals, and review checks.
-   - If the user asks for an "assignment" or "coursework", generate an **Academic Assignment Blueprint**.
-   - If the user asks for a "cover letter" or "SOP", generate an **Application Cover Letter / Statement of Purpose**.
-   - If the user asks for a "waiver", generate a **Formal Credential / Language Waiver Request**.
-   - If the user asks for "slides" or "presentation", generate **Structured Presentation Slides**.
-   - Generate a CV ONLY when the user explicitly asked for a CV or resume.
-3. CLARIFYING QUESTIONS:
-   - If crucial parameters are missing (e.g. study timeline, target exam, specialization, tone), reason over the task and ask 1 focused question using the question tool block with 2-4 short tappable button options.
+You are not a generic chatbot. You are a credential-aware document synthesis agent. Your value is that everything you produce is grounded in the user's actual uploaded material — never invented, never generic. Think of yourself as a careful editor and document specialist who happens to also verify academic/professional claims, not as a "creative writing" assistant.
+
+Tone: precise, competent, low-friction. Brief and direct in chat. Never over-explain what you're about to do — just do it once intent is clear.
 
 ════════════════════════════════════════
-GREETINGS & CASUAL CONVERSATION DIRECTIVE
+WHAT YOU CAN DO
 ════════════════════════════════════════
-- When the user says "hello", "hi", "hey", or engages in casual small talk:
-  - Respond warmly, naturally, and conversationally as Kred.
-  - DO NOT trigger any forms, questionnaires, or button menus.
-  - DO NOT output canned qualification audits or credential alignment bullet points unless explicitly asked.
-  - Briefly state how you can help (e.g. answering questions, research, admissions guidance, writing CVs/cover letters, student study plans, coursework planning).
+- Answer questions about a user's uploaded credentials or documents
+- Give feedback/critique on an existing CV, cover letter, or other document
+- Generate new documents: CVs, cover letters, statements of purpose, pitch decks, interactive flashcards, study plans, invoices, attestation statements
+- Edit/refine a document already generated in the current session
+- Verify academic equivalency (GPA scale conversion, credit hours, course prerequisites) against WES, UK ENIC, and ECTS standards
+- Ground time-sensitive claims (admissions deadlines, visa rules, salary benchmarks) against live web verification rather than relying on training knowledge
 
 ════════════════════════════════════════
-STRUCTURED QUESTION TOOL & FORM RULES
+HOW YOU DECIDE WHAT TO DO (every message)
 ════════════════════════════════════════
-You have access to a structured question tool that renders tappable button options to the user instead of requiring free-text input. Use it to narrow down preferences before generating or editing a document — not for every interaction.
+1. Default to a normal conversational reply for greetings, questions, feedback requests, or general inquiries.
+2. CRITICAL GENERATION DIRECTIVE: When the user asks to generate, create, make, build, or synthesize a document (flashcards, presentation/slides, receipt, invoice, CV/resume, cover letter, study plan) — for example: "generate a flash card for me about biology" or "make slides on AI":
+   YOU MUST DIRECTLY AND IMMEDIATELY GENERATE THE COMPLETE DELIVERABLE IN FULL MARKDOWN FORMAT.
+   NEVER ask preliminary questions, NEVER ask for more details or topic preferences, NEVER prompt an intake form. Pick the most authoritative foundational concepts and produce the full document right away so the user can interact with it on the Preview Canvas.
+3. A file upload or an @mentioned credential is context, not an instruction — work from it when asked to build something grounded in user credentials.
+4. Only ask a clarifying question if the user's intent is completely ambiguous (e.g. "look at this"). When intent to generate is clear, ALWAYS GENERATE IMMEDIATELY.
 
-WHEN TO USE THE FORM:
-Use it ONLY when:
-- You need a preference/constraint that materially changes the output (tone, format, length, purpose) AND
-- The answer is NOT already inferable from the uploaded document or prior conversation AND
-- The user hasn't already specified it in their message.
+════════════════════════════════════════
+HOW YOU GENERATE A DOCUMENT
+════════════════════════════════════════
+1. When asked to generate a document (flashcards, slides, receipt, CV, etc.), IMMEDIATELY generate the complete structured deliverable without stalling or asking redundant questions.
+2. Follow these exact structural standards for the requested deliverable type:
 
-DO NOT USE THE FORM WHEN:
-- The answer is inferable from context (e.g. doc already shows tone/industry/degree).
-- The user asked an open question wanting your judgment, not a menu ("what should I focus on in my CV?" → answer directly with your expert guidance, don't turn it into a form).
-- The user is giving feedback, venting, or greeting, not requesting a build.
-- It's a single-answer factual question.
-- You already asked a form this turn — never stack multiple forms in a single response.
-- Never use it to ask permission to do something the user already asked for explicitly (e.g. don't ask "should I generate a CV?" if they already said "generate a CV for me" — that's an extra unnecessary click).
-- Never chain more than 2 forms back-to-back without a generated result appearing in between.
+• FLASHCARD DECK (Interactive Flashcards):
+Always format 3 to 5 comprehensive flashcards with clear Front, Back, and Key Takeaway so the preview canvas can parse and render them into authentic 3D interactive flashcards:
+\`\`\`markdown
+# [Subject] Flashcards: [Topic]
 
-FORM DESIGN RULES:
-1. One question per form field. Maximum 3 fields per form — 1 is preferred.
-2. Every field needs 2-4 short, mutually exclusive options (a few words each, not sentences).
-3. Always precede the form with one short conversational sentence framing why you're asking — never render options with no lead-in.
-4. After presenting the form, STOP. Do not continue writing. Wait for the user's selection as the next turn.
-5. If a field's answer can be reasonably pre-filled from the uploaded document, pre-fill it and ask for confirmation rather than asking blind.
-6. Open-ended data (dates, names, numbers) should NOT be forced into button options — use text input.
+### Card 1: [Concept Title]
+**Front / Question:** [The prompt question or term to test]
+**Back / Answer:** [The complete, verified explanation or definition]
+**Key Takeaway:** [Core mechanism, formula, or exam mnemonic]
 
-Example JSON output block when a question is needed:
-\`\`\`kred_questions
-[
-  {
-    "id": "study_duration",
-    "title": "What is your target study timeline?",
-    "multiSelect": false,
-    "options": [
-      { "id": "4weeks", "label": "4-Week Intensive Sprint" },
-      { "id": "8weeks", "label": "8-Week Comprehensive Plan" },
-      { "id": "semester", "label": "Full Semester (16 Weeks)" }
-    ]
-  }
-]
+### Card 2: [Concept Title]
+**Front / Question:** [Prompt question]
+**Back / Answer:** [Verified explanation]
+**Key Takeaway:** [Core takeaway]
+
+### Card 3: [Concept Title]
+**Front / Question:** [Prompt question]
+**Back / Answer:** [Verified explanation]
+**Key Takeaway:** [Core takeaway]
 \`\`\`
 
+• PRESENTATION SLIDES (16:9 Presentation Deck):
+Always format as clean slides with slide delimiters and presenter notes:
+\`\`\`markdown
+# [Deck Title]
+*Executive Presentation Deck*
+
+## Slide 1: [Title Slide]
+*Subtitle:* [Subtitle]
+- [Overview thesis or core statement]
+
+## Slide 2: [Topic Title]
+- [Key insight bullet 1]
+- [Key insight bullet 2]
+- [Feature / Metric]: [Detail explanation]
+*Presenter Notes:* [Notes for speaker]
+\`\`\`
+
+• RECEIPT & INVOICE (Financial Attestation):
+Always format with merchant, receipt number, date, customer, itemized items with prices, subtotal, tax, and total:
+\`\`\`markdown
+# Official Sales Receipt
+**Merchant:** [Store, Organization, or Institution Name]
+**Receipt No:** #REC-[6-digit number]
+**Date:** [Date]
+**Customer:** [Customer Name]
+**Payment Method:** [Payment Method, e.g. Digital Payment · Sovereign Rail]
+
+### Itemized Charges:
+- 1x [Item 1] - $XX.XX
+- 2x [Item 2] - $XX.XX
+
+**Subtotal:** $XX.XX
+**Tax (8%):** $XX.XX
+**Total:** $XX.XX
+**Status:** PAID & VERIFIED
+\`\`\`
+
+• CURRICULUM VITAE / RESUME (ATS-Optimized):
+Always format with standard professional sections:
+\`\`\`markdown
+# [Candidate Name]
+**Title:** [Target Role / Profession]
+**Email:** [Email] | **Phone:** [Phone] | **Location:** [Location]
+
+### Professional Summary
+[Concise, impactful summary grounded in verified achievements]
+
+### Work Experience
+#### [Role] - [Company / Organization] - [Dates]
+- [Quantified achievement bullet 1]
+- [Quantified achievement bullet 2]
+
+### Education & Verified Credentials
+- [Degree], [Institution], [Year]
+
+### Core Skills & Competencies
+[Skill 1], [Skill 2], [Skill 3], [Skill 4], [Skill 5]
+\`\`\`
+
+3. Build structured data first — the facts, in a clean schema — before any layout or prose.
+4. Never fabricate credentials. If the user provided credentials in the vault, ground the document in those records.
+5. Offer export as Markdown or print-ready PDF.
+
 ════════════════════════════════════════
-DOCUMENT GENERATION & EXECUTION DIRECTIVES
+HOW YOU EDIT A DOCUMENT
 ════════════════════════════════════════
-1. When generating a deliverable:
-   - Deliver the complete, executive-grade document directly in structured Markdown with clear headings (# Title, ## Section, bullet points).
-   - Incorporate real degrees, transcripts, GPA, and verified records from the vault.
-2. Direct Answers:
-   - Always answer questions intelligently, directly, and comprehensively.
+- Work from the existing structured data, not from scratch. "Make it shorter," "more formal," "add my last job" are transforms on what's already there.
+- If there's nothing open yet to edit, say so and ask what to build instead — don't silently start a new generation without saying so.
+
+════════════════════════════════════════
+HOW YOU HANDLE VERIFICATION
+════════════════════════════════════════
+- Compare only derived values (GPA scale, credit hours, course titles) against the named standard — never reason from or repeat the raw underlying document content beyond what's needed for the comparison.
+- State results plainly and flag uncertainty explicitly. Never assert an equivalency or pass/fail you can't actually support from the standard you're applying — "likely equivalent, confirm with the institution" is better than a false-confident answer.
+
+════════════════════════════════════════
+BOUNDARIES
+════════════════════════════════════════
+- Never invent credentials, dates, grades, job titles, or amounts.
+- Never transmit a raw uploaded document in a model call unless the user explicitly @mentioned it in the current message — work from parsed metadata otherwise.
+- Never open the canvas or take agent action without explicit user intent.
+- If you're running on a fallback engine due to rate limits or an outage, say so plainly rather than pretending nothing changed.
+- If a user's claim about their own credentials seems inconsistent with their uploaded material, say so directly rather than smoothing it over in the generated document.
+
+════════════════════════════════════════
+WHAT GOOD LOOKS LIKE
+════════════════════════════════════════
+A good turn is: understand what's actually being asked, ask only what's missing, generate only what's grounded in real data, and get out of the way. The user should never have to fight you to get a plain answer, and never get a document with something in it they didn't actually provide.
 
 ${hasCredentials ? `User Vault Stored Credentials:\n${userContext}` : '(Vault contains no documents yet.)'}`;
 };
-
-// Global GoogleGenAI client
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    },
-  },
-});
 
 // Helper to decode DuckDuckGo redirect URLs
 function extractCleanUrl(rawUrl: string): string {
@@ -405,161 +459,26 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         }
       }
 
+      let interactiveForm: any = undefined;
+
       const isDocument =
         mode === 'agent' ||
         cleanText.toLowerCase().includes('curriculum vitae') ||
+        cleanText.toLowerCase().includes('resume') ||
+        cleanText.toLowerCase().includes('flashcard') ||
+        cleanText.toLowerCase().includes('receipt') ||
+        cleanText.toLowerCase().includes('invoice') ||
+        cleanText.toLowerCase().includes('slide') ||
+        cleanText.toLowerCase().includes('presentation') ||
         cleanText.toLowerCase().includes('# assignment') ||
         cleanText.toLowerCase().includes('# presentation') ||
         message.toLowerCase().includes('cv') ||
-        message.toLowerCase().includes('assignment') ||
-        message.toLowerCase().includes('coursework');
-
-      const isGenerationIntent =
-        message.toLowerCase().includes('create') ||
-        message.toLowerCase().includes('generate') ||
-        message.toLowerCase().includes('build') ||
-        message.toLowerCase().includes('draft') ||
-        message.toLowerCase().includes('write') ||
-        message.toLowerCase().includes('cv') ||
         message.toLowerCase().includes('resume') ||
-        message.toLowerCase().includes('assignment') ||
-        message.toLowerCase().includes('coursework') ||
-        message.toLowerCase().includes('statement of purpose') ||
-        message.toLowerCase().includes('cover letter');
-
-      let interactiveForm: any = undefined;
-
-      if (isGenerationIntent && !message.includes('[FORM_SUBMISSION]') && !message.includes('with the following tailored inputs:')) {
-        if (message.toLowerCase().includes('cv') || message.toLowerCase().includes('resume')) {
-          interactiveForm = {
-            id: `form_cv_${Date.now()}`,
-            type: 'cv',
-            title: 'Curriculum Vitae (CV) Intake & Reasoning Form',
-            description: 'Please provide your details below. I will reason over your background, target role, and verified credentials to craft an executive CV.',
-            fields: [
-              { id: 'fullName', label: 'Full Name', placeholder: 'e.g. Alex Johnson', required: true },
-              { id: 'phone', label: 'Contact Phone Number', placeholder: 'e.g. +1 (555) 234-5678', required: false },
-              { id: 'emailZip', label: 'Email, City & Zip Code', placeholder: 'e.g. alex@example.com · New York, NY 10001', required: false },
-              { id: 'targetRole', label: 'Target Job Title / Academic Goal', placeholder: 'e.g. Senior Software Engineer / Oxford MSc Applicant', required: true },
-              { id: 'keySkills', label: 'Core Competencies & Key Achievements', placeholder: 'e.g. Full-stack development, Python, Distributed Systems, 4+ yrs experience, Team Leadership', type: 'textarea' },
-            ],
-            questions: [
-              {
-                id: 'cv_style',
-                title: 'Target Specialization & Domain',
-                multiSelect: false,
-                options: [
-                  { id: 'swe', label: 'Software Engineering & Cloud Architecture' },
-                  { id: 'data', label: 'Data Science & Machine Learning' },
-                  { id: 'academic', label: 'Academic & PhD Research' },
-                  { id: 'executive', label: 'Product & Executive Leadership' },
-                ],
-              },
-              {
-                id: 'cv_length',
-                title: 'Preferred Resume Layout',
-                multiSelect: false,
-                options: [
-                  { id: '1page', label: '1-Page Modern (Silicon Valley Standard)' },
-                  { id: '2page', label: '2-Page Detailed Executive (International)' },
-                  { id: 'academic_cv', label: 'Full Academic Curriculum Vitae (CV)' },
-                ],
-              },
-            ],
-          };
-
-          if (!cleanText.includes('Intake') && !cleanText.includes('Reasoning Form')) {
-            cleanText = `I will help you create an executive-grade, customized Curriculum Vitae.\n\nTo tailor it accurately to your target opportunity, please fill out the interactive intake form below (including your contact details, location/zip, target role, and specialization). Once submitted, I will reason over your information and generate your complete CV!`;
-          }
-        } else if (message.toLowerCase().includes('cover letter') || message.toLowerCase().includes('statement of purpose') || message.toLowerCase().includes('sop')) {
-          interactiveForm = {
-            id: `form_cl_${Date.now()}`,
-            type: 'cover_letter',
-            title: 'Application & Cover Letter Intake Form',
-            description: 'Provide the hiring manager / university details so I can reason over your strengths and draft a compelling letter.',
-            fields: [
-              { id: 'fullName', label: 'Full Name', placeholder: 'e.g. Alex Johnson', required: true },
-              { id: 'targetCompany', label: 'Target Institution / Company Name', placeholder: 'e.g. Google / University of Oxford', required: true },
-              { id: 'targetRole', label: 'Target Position / Degree Program', placeholder: 'e.g. Staff Engineer / MSc Computer Science', required: true },
-              { id: 'keyHook', label: 'Why are you passionate about this specific role?', placeholder: 'e.g. Passion for scalable AI architectures and research contributions...', type: 'textarea' },
-            ],
-            questions: [
-              {
-                id: 'tone',
-                title: 'Desired Letter Tone',
-                multiSelect: false,
-                options: [
-                  { id: 'confident', label: 'Confident & Impact-Driven (Corporate / Tech)' },
-                  { id: 'academic', label: 'Scholarly & Rigorous (University / Fellowship)' },
-                  { id: 'enthusiastic', label: 'Passionate & Mission-Aligned (Nonprofit / Startup)' },
-                ],
-              },
-            ],
-          };
-
-          cleanText = `I would be glad to draft a compelling letter for you.\n\nPlease provide your target organization and background details in the interactive form below. I will reason through your qualifications to construct a persuasive draft!`;
-        } else if (message.toLowerCase().includes('student plan') || message.toLowerCase().includes('study plan') || message.toLowerCase().includes('roadmap')) {
-          interactiveForm = {
-            id: `form_plan_${Date.now()}`,
-            type: 'study_plan',
-            title: 'Student Study Plan & Academic Roadmap Intake Form',
-            description: 'Specify your subject area, target milestone, and preferred timeline so I can reason over your goals and build your roadmap.',
-            fields: [
-              { id: 'subjectArea', label: 'Study Subject / Degree Focus', placeholder: 'e.g. Advanced Distributed Systems & AI', required: true },
-              { id: 'deliverableGoal', label: 'Target Milestone / Objective', placeholder: 'e.g. Master system design and complete graduate preparation', required: true },
-            ],
-            questions: [
-              {
-                id: 'study_duration',
-                title: 'Target Study Timeline',
-                multiSelect: false,
-                options: [
-                  { id: '4weeks', label: '4-Week Intensive Sprint' },
-                  { id: '8weeks', label: '8-Week Comprehensive Plan' },
-                  { id: 'semester', label: 'Full Semester (16 Weeks)' },
-                ],
-              },
-            ],
-          };
-
-          cleanText = `I will build a customized Student Study Plan & Milestone Roadmap for you.\n\nPlease select your study parameters below so I can reason over your curriculum structure and generate your structured roadmap!`;
-        } else if (message.toLowerCase().includes('assignment') || message.toLowerCase().includes('coursework') || message.toLowerCase().includes('syllabus')) {
-          interactiveForm = {
-            id: `form_asg_${Date.now()}`,
-            type: 'assignment',
-            title: 'Academic Blueprint & Study Plan Intake Form',
-            description: 'Specify the academic level, module focus, and expected deliverables for your custom blueprint.',
-            fields: [
-              { id: 'subjectArea', label: 'Course / Subject Area', placeholder: 'e.g. Advanced Distributed Systems', required: true },
-              { id: 'deliverableGoal', label: 'Core Objective / Target Milestone', placeholder: 'e.g. 4-Week intensive syllabus with coding tasks and grading rubric', required: true },
-            ],
-            questions: [
-              {
-                id: 'academic_level',
-                title: 'Academic Level',
-                multiSelect: false,
-                options: [
-                  { id: 'undergrad', label: 'Undergraduate Senior (B.Sc)' },
-                  { id: 'postgrad', label: 'Postgraduate Master (M.Sc)' },
-                  { id: 'doctoral', label: 'Doctoral Research (Ph.D)' },
-                ],
-              },
-              {
-                id: 'deliverable_type',
-                title: 'Included Components',
-                multiSelect: true,
-                options: [
-                  { id: 'code', label: 'Source Code Architecture & Tests' },
-                  { id: 'rubric', label: 'Grading Rubric & Assessment Matrix' },
-                  { id: 'timeline', label: 'Week-by-Week Milestone Roadmap' },
-                ],
-              },
-            ],
-          };
-
-          cleanText = `I will build a comprehensive academic coursework blueprint for you.\n\nPlease select your academic level and parameters in the form below so I can reason over your curriculum structure and generate the complete plan!`;
-        }
-      }
+        message.toLowerCase().includes('flashcard') ||
+        message.toLowerCase().includes('receipt') ||
+        message.toLowerCase().includes('invoice') ||
+        message.toLowerCase().includes('slide') ||
+        message.toLowerCase().includes('presentation');
 
       let sources: string[] = [];
       if (isSearchNeeded || activeSearchResults.length > 0) {
@@ -580,506 +499,141 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       };
     };
 
-    // 1. PRIMARY PRIORITY: NVIDIA NIM API (Advanced GLM, Kimi, Llama 3.3, Nemotron, Qwen 2.5)
-    const nvidiaApiKey = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY;
-    if (nvidiaApiKey) {
-      // Prioritized list of advanced NVIDIA NIM models
-      const userSelectedModel = process.env.NVIDIA_MODEL || process.env.NIM_MODEL;
-      const candidateModels = userSelectedModel
-        ? [
-            userSelectedModel,
-            'thudm/glm-4-9b-chat',
-            'moonshotai/moonlight-16b-a3b-instruct',
-            'meta/llama-3.3-70b-instruct',
-            'nvidia/llama-3.1-nemotron-70b-instruct',
-            'qwen/qwen2.5-72b-instruct',
-            'mistralai/mixtral-8x22b-instruct',
-          ]
-        : [
-            'thudm/glm-4-9b-chat',
-            'moonshotai/moonlight-16b-a3b-instruct',
-            'meta/llama-3.3-70b-instruct',
-            'nvidia/llama-3.1-nemotron-70b-instruct',
-            'qwen/qwen2.5-72b-instruct',
-            'mistralai/mixtral-8x22b-instruct',
-          ];
+    // 1. NEURAL INFERENCE PROVIDERS: GOOGLE GEMINI & HUGGING FACE
+    const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim();
+    const hfApiKey = (process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN || process.env.HF_API_KEY || '').trim();
 
-      const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-10).map((h: any) => ({
-          role: h.role === 'user' ? 'user' : 'assistant',
-          content: String(h.text || h.content || ''),
+    // Standard OpenAI/HF message format
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...history.slice(-8).map((h: any) => ({
+        role: h.role === 'user' ? 'user' : 'assistant',
+        content: String(h.text || h.content || ''),
+      })),
+      { role: 'user', content: message },
+    ];
+
+    let lastErrorDetails = '';
+    let lastStatusCode = 0;
+
+    // A. Google Gemini Inference Pipeline (@google/genai)
+    if (geminiApiKey) {
+      const ai = new GoogleGenAI({
+        apiKey: geminiApiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+
+      // Active supported models in API (gemini-3.1-flash-lite, gemini-3.8-flash & gemini-flash-latest)
+      const geminiCandidateModels = Array.from(
+        new Set([
+          process.env.GEMINI_MODEL,
+          'gemini-3.1-flash-lite',
+          'gemini-3.8-flash',
+          'gemini-flash-latest',
+        ].filter(Boolean))
+      ) as string[];
+
+      // Construct Gemini conversation: alternate user/model turns without system messages in contents
+      const geminiContents = [
+        ...history.slice(-8).map((h: any) => ({
+          role: h.role === 'user' ? 'user' : 'model',
+          parts: [{ text: String(h.text || h.content || '') }],
         })),
-        { role: 'user', content: message },
+        {
+          role: 'user',
+          parts: [{ text: message }],
+        },
       ];
 
-      for (const targetModel of candidateModels) {
+      for (const targetModel of geminiCandidateModels) {
         try {
-          const nvidiaRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          console.log(`[AI Routing] Invoking Google Gemini model: ${targetModel}`);
+
+          const geminiResponse = await ai.models.generateContent({
+            model: targetModel,
+            contents: geminiContents,
+            config: {
+              temperature: mode === 'agent' ? 0.2 : 0.7,
+              systemInstruction: systemPrompt,
+            },
+          });
+
+          const aiText = geminiResponse.text;
+          if (aiText && aiText.trim().length > 5) {
+            console.log(`[AI Routing] Successfully generated response with Google Gemini model: ${targetModel}`);
+            const formatted = formatAiResponse(aiText, `gemini (${targetModel})`);
+            res.json(formatted);
+            return;
+          }
+        } catch (geminiErr: any) {
+          lastErrorDetails = `Gemini ${targetModel} error: ${geminiErr?.message || geminiErr}`;
+          console.warn(`[AI Routing] Gemini model ${targetModel} error:`, geminiErr?.message, '- trying next model...');
+        }
+      }
+    }
+
+    // B. Hugging Face Inference Pipeline (Router Endpoints)
+    if (hfApiKey) {
+      const userSelectedHfModel = process.env.HF_MODEL || process.env.HUGGINGFACE_MODEL;
+      const validHfModels = [
+        'meta-llama/Llama-3.3-70B-Instruct',
+        'Qwen/Qwen2.5-72B-Instruct',
+      ];
+
+      const candidateHfModels = userSelectedHfModel && validHfModels.includes(userSelectedHfModel)
+        ? [userSelectedHfModel, ...validHfModels.filter((m) => m !== userSelectedHfModel)]
+        : validHfModels;
+
+      for (const targetHfModel of candidateHfModels) {
+        try {
+          const hfRes = await fetch('https://router.huggingface.co/v1/chat/completions', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${nvidiaApiKey}`,
+              Authorization: `Bearer ${hfApiKey}`,
             },
             body: JSON.stringify({
-              model: targetModel,
+              model: targetHfModel,
               messages,
-              temperature: mode === 'agent' ? 0.2 : 0.6,
-              top_p: 0.9,
-              max_tokens: 3072,
+              temperature: mode === 'agent' ? 0.3 : 0.7,
+              max_tokens: 4096,
             }),
-            signal: AbortSignal.timeout(9000),
+            signal: AbortSignal.timeout(25000),
           });
 
-          if (nvidiaRes.ok) {
-            const data = await nvidiaRes.json();
+          if (hfRes.ok) {
+            const data = await hfRes.json();
             const aiText = data.choices?.[0]?.message?.content;
-            if (aiText) {
-              const formatted = formatAiResponse(aiText, `nvidia (${targetModel})`);
+            if (aiText && aiText.trim().length > 10) {
+              console.log(`[AI Routing] Successfully generated response with Hugging Face model: ${targetHfModel}`);
+              const formatted = formatAiResponse(aiText, `huggingface (${targetHfModel})`);
               res.json(formatted);
               return;
             }
           } else {
-            console.warn(`NVIDIA NIM model ${targetModel} returned status ${nvidiaRes.status}, trying next model in chain...`);
+            lastStatusCode = hfRes.status;
+            const errBody = await hfRes.text().catch(() => '');
+            lastErrorDetails = `Hugging Face ${targetHfModel} (HTTP ${hfRes.status}): ${errBody.slice(0, 160)}`;
+            console.warn(`Hugging Face model ${targetHfModel} returned status ${hfRes.status}: ${errBody.slice(0, 120)}, trying next HF model...`);
           }
-        } catch (modelErr: any) {
-          console.warn(`NVIDIA NIM model ${targetModel} invocation error:`, modelErr?.message);
+        } catch (hfErr: any) {
+          lastErrorDetails = `Hugging Face ${targetHfModel} error: ${hfErr?.message || hfErr}`;
+          console.warn(`Hugging Face model ${targetHfModel} invocation error:`, hfErr?.message);
         }
       }
     }
 
-    // 2. BACKUP & MULTI-MODAL PRIORITY: Google Gemini API (gemini-3.8-flash with gemini-3.1-flash-lite)
-    if (process.env.GEMINI_API_KEY) {
-      try {
-        const contents = [
-          ...history.slice(-12).map((h: any) => ({
-            role: h.role === 'assistant' || h.role === 'model' ? 'model' : 'user',
-            parts: [{ text: String(h.text || h.content || '') }],
-          })),
-          {
-            role: 'user',
-            parts: [{ text: message }],
-          },
-        ];
-
-        const geminiConfig: any = {
-          systemInstruction: systemPrompt,
-          temperature: mode === 'agent' ? 0.3 : 0.7,
-          tools: [{ googleSearch: {} }], // Autonomous Google Search grounding tool
-        };
-
-        let aiText = '';
-        let groundingSources: string[] = [];
-
-        try {
-          const geminiRes = await ai.models.generateContent({
-            model: 'gemini-3.8-flash',
-            contents,
-            config: geminiConfig,
-          });
-          aiText = geminiRes.text || '';
-
-          // Extract search grounding sources if available
-          const groundingMetadata = (geminiRes.candidates?.[0] as any)?.groundingMetadata;
-          if (groundingMetadata?.groundingChunks) {
-            groundingMetadata.groundingChunks.forEach((chunk: any) => {
-              if (chunk.web?.title) {
-                groundingSources.push(chunk.web.title);
-              }
-            });
-          }
-        } catch (spikeErr: any) {
-          try {
-            const geminiRes = await ai.models.generateContent({
-              model: 'gemini-3.1-flash-lite',
-              contents,
-              config: geminiConfig,
-            });
-            aiText = geminiRes.text || '';
-          } catch {
-            // Quota reached or high demand, proceed smoothly to sovereign engine
-          }
-        }
-
-        if (aiText) {
-          const formatted = formatAiResponse(aiText, 'gemini', groundingSources);
-          res.json(formatted);
-          return;
-        }
-      } catch (geminiErr: any) {
-        // Silent graceful fallback to sovereign intelligence engine
-      }
-    }
-
-    // 3. Built-in high-intelligence sovereign reasoning engine (Zero-Quota-Limit Fallback)
-    const q = message.toLowerCase().trim();
-    let responseText = '';
-    let sources = credentials.length > 0 ? credentials.slice(0, 3).map((c: any) => c.name) : ['KRED Sovereign Vault Intelligence'];
-    let actionLabel: string | undefined = undefined;
-    let fallbackForm: any = undefined;
-    let fallbackQuestions: any[] | undefined = undefined;
-
-    // A. Casual Greetings & Conversational Queries
-    const isGreeting =
-      /^(hello|hi|hey|greetings|good morning|good afternoon|good evening|howdy|sup|yo|welcome|hey there|hello there)(\s|\!|\.|\?|$)/i.test(q) ||
-      q.includes('how are you') ||
-      q === 'who are you' ||
-      q === 'what are you';
-
-    if (isGreeting) {
-      if (mode === 'agent') {
-        if (!hasCredentials) {
-          responseText = `Hello! 👋 I am in **Agent Mode**.\n\nYour Sovereign Vault currently has no documents uploaded. Once you upload your school certificates, degrees, or transcripts, I can synthesize customized CVs, research blueprints, or application dossiers for you.\n\n### 🚀 Quick Start:\n1. Click **'Upload Credential'** in the sidebar or top bar.\n2. Add your certificate, transcript, or ID.\n3. Ask me to generate your document or run an audit!`;
-          actionLabel = 'Upload Credential';
-        } else {
-          responseText = `Hello! 👋 I am in **Agent Mode**, ready to synthesize deliverables from your **${credentials.length} verified credentials**.\n\nYou can command me to:\n• **"Create a professional CV from my credentials"**\n• **"Draft an application cover letter or statement of purpose"**\n• **"Generate presentation slides for this qualification"**\n• **"Build an academic assignment & study plan"**\n\nWhat would you like me to build for you?`;
-          actionLabel = 'Create CV from Credentials';
-        }
-      } else {
-        responseText = `Hello! 👋 I'm Kred, your AI career and credential intelligence assistant. How can I help you today?\n\nI can help you with:\n• Brainstorming, explaining complex concepts, writing code, and learning any topic\n• Auditing academic criteria, WES/UK ENIC equivalencies, and university admissions\n• Real-time web search and 2026 factual information\n• Synthesizing executive CVs, cover letters, coursework blueprints, and slide decks\n\nWhat would you like to explore or work on?`;
-        actionLabel = undefined;
-      }
-    } 
-    // B. Form Submissions (Tailored generation after user completes intake)
-    else if (message.includes('[FORM_SUBMISSION]') || message.includes('with the following tailored inputs:')) {
-      const nameMatch = message.match(/Full Name:\s*([^\n]+)/i);
-      const phoneMatch = message.match(/Phone[^:]*:\s*([^\n]+)/i);
-      const emailZipMatch = message.match(/Email[^:]*:\s*([^\n]+)/i);
-      const roleMatch = message.match(/Target[^:]*:\s*([^\n]+)/i) || message.match(/Position[^:]*:\s*([^\n]+)/i);
-      const skillsMatch = message.match(/Skills[^:]*:\s*([^\n]+)/i) || message.match(/Competencies[^:]*:\s*([^\n]+)/i);
-      const subjectMatch = message.match(/Course[^:]*:\s*([^\n]+)/i) || message.match(/Subject[^:]*:\s*([^\n]+)/i);
-      const goalMatch = message.match(/Objective[^:]*:\s*([^\n]+)/i) || message.match(/Goal[^:]*:\s*([^\n]+)/i);
-
-      const candidateName = nameMatch ? nameMatch[1].trim() : 'Alex Johnson';
-      const candidatePhone = phoneMatch ? phoneMatch[1].trim() : '+1 (555) 234-5678';
-      const candidateLocation = emailZipMatch ? emailZipMatch[1].trim() : 'alex.johnson@example.com · New York, NY 10001';
-      const targetRole = roleMatch ? roleMatch[1].trim() : 'Senior Software Engineer';
-      const keySkills = skillsMatch ? skillsMatch[1].trim() : 'Distributed Systems, TypeScript, Python, Cloud Architecture';
-      const subjectArea = subjectMatch ? subjectMatch[1].trim() : 'Computer Science & AI Systems';
-      const deliverableGoal = goalMatch ? goalMatch[1].trim() : '6-Week Intensive Study Plan';
-
-      const topCred = credentials[0]?.name || 'Bachelor of Science in Computer Science';
-      const topIssuer = credentials[0]?.issuer || 'Accredited University';
-
-      if (q.includes('student') || q.includes('study plan') || q.includes('plan') || q.includes('roadmap')) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Generating a customized **Student Study Plan & Milestone Roadmap** for *${subjectArea}*.\n` +
-          `• **Vault Alignment**: Grounded in verified qualifications from **${topIssuer}** (${topCred}).\n` +
-          `• **Structure**: Divided into modular milestone phases with actionable weekly goals, recommended resources, and assessment rubrics.\n\n` +
-          `# 🗺️ STUDENT STUDY PLAN & ACADEMIC ROADMAP\n\n` +
-          `**Candidate**: ${candidateName}\n` +
-          `**Subject Area**: ${subjectArea}\n` +
-          `**Core Goal**: ${deliverableGoal}\n` +
-          `**Academic Reference**: ${topIssuer} (${topCred})\n\n` +
-          `---\n\n` +
-          `### 📅 Phase 1: Core Theoretical Foundations (Weeks 1–2)\n` +
-          `• **Learning Objective**: Master foundational principles and analyze seminal literature in ${subjectArea}.\n` +
-          `• **Key Study Modules**:\n` +
-          `  - Core theoretical models, logic structures, and formal specifications.\n` +
-          `  - In-depth review of key research papers and canonical textbooks.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 1*: Complete reading assignments and summarize 5 core frameworks.\n` +
-          `  - *Week 2*: Write a conceptual architecture brief synthesizing theoretical tradeoffs.\n` +
-          `• **Deliverable**: Comprehensive theoretical overview & concept map.\n\n` +
-          `---\n\n` +
-          `### 🔬 Phase 2: Practical Implementation & Lab Milestones (Weeks 3–4)\n` +
-          `• **Learning Objective**: Apply theoretical knowledge to hands-on problem sets and project builds.\n` +
-          `• **Applied Focus**: Systems design, test-driven development, and algorithmic optimization.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 3*: Build core module architecture with complete unit test suites.\n` +
-          `  - *Week 4*: Benchmark performance, test edge cases, and integrate dependencies.\n` +
-          `• **Deliverable**: Working laboratory implementation with documentation.\n\n` +
-          `---\n\n` +
-          `### 📊 Phase 3: Synthesis, Review & Examination Preparation (Weeks 5–6)\n` +
-          `• **Learning Objective**: Consolidate milestones, profile efficiency, and prepare for academic or professional evaluation.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 5*: Complete end-to-end audit of all study deliverables.\n` +
-          `  - *Week 6*: Mock defense, presentation rehearsal, and self-assessment rubric evaluation.\n` +
-          `• **Final Deliverable**: Completed academic study portfolio ready for evaluation.`;
-        actionLabel = 'Export Student Study Plan (.md)';
-      } else if (q.includes('assignment') || q.includes('coursework') || q.includes('syllabus')) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Generating an **Academic Coursework & Assignment Blueprint**.\n` +
-          `• **Vault Alignment**: Calibrated against accredited curricula from **${topIssuer}**.\n\n` +
-          `# 📚 ACADEMIC COURSEWORK & ASSIGNMENT BLUEPRINT\n\n` +
-          `**Subject Area**: ${subjectArea}\n` +
-          `**Target Objective**: ${deliverableGoal}\n` +
-          `**Academic Reference**: ${topIssuer} Verified Coursework Syllabus\n\n` +
-          `---\n\n` +
-          `### 🎯 Module 1: Comprehensive Theoretical Foundations\n` +
-          `• **Objective**: Synthesize core domain literature and establish foundational research questions.\n` +
-          `• **Task**: Write a 1,500-word critical literature review evaluating standard architectural methodologies.\n\n` +
-          `### 🔬 Module 2: Applied Practical Implementation\n` +
-          `• **Objective**: Construct an end-to-end working system or comparative data analysis.\n` +
-          `• **Deliverable**: Complete source code repository with comprehensive unit tests and design documentation.\n\n` +
-          `### 📊 Module 3: Verification & Defense Presentation\n` +
-          `• **Objective**: Present findings against benchmark criteria and defend architectural choices.\n` +
-          `• **Rubric**: 40% Methodology, 35% Implementation Quality, 25% Presentation & Defense.`;
-        actionLabel = 'Export Assignment Blueprint (.md)';
-      } else if (q.includes('cover_letter') || q.includes('cover letter') || q.includes('statement of purpose') || q.includes('sop')) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Crafting a persuasive **Application Cover Letter** tailored to *${targetRole}*.\n` +
-          `• **Vault Alignment**: Highlighting accredited standing from **${topIssuer}** and competencies in *${keySkills}*.\n\n` +
-          `# APPLICATION LETTER: ${targetRole.toUpperCase()}\n\n` +
-          `**${candidateName}**\n` +
-          `${candidateLocation} | ${candidatePhone}\n\n` +
-          `---\n\n` +
-          `Dear Admissions Committee / Hiring Team,\n\n` +
-          `I am writing to express my enthusiastic candidacy for the **${targetRole}** opportunity. With my accredited academic standing from **${topIssuer}** and domain mastery in **${keySkills}**, I offer a strong combination of technical rigor and practical execution.\n\n` +
-          `### 🎯 Key Strengths & Alignment:\n` +
-          `• **Domain Excellence**: Specialized background in ${keySkills} with verified coursework credentials.\n` +
-          `• **Proven Track Record**: Completed advanced milestone deliverables with high distinction.\n` +
-          `• **Strategic Commitment**: Dedicated to driving measurable innovation and cross-functional success.\n\n` +
-          `Thank you for considering my application. I look forward to discussing how my experience aligns with your objectives.\n\n` +
-          `Sincerely,\n\n` +
-          `**${candidateName}**`;
-        actionLabel = 'Download Cover Letter (.md)';
-      } else {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Synthesizing an executive **Curriculum Vitae (CV)** tailored for *${targetRole}*.\n` +
-          `• **Vault Alignment**: Mapping **${credentials.length} verified credentials** from **${topIssuer}** into structured sections.\n\n` +
-          `# ${candidateName.toUpperCase()}\n` +
-          `**${targetRole}**\n` +
-          `📍 ${candidateLocation} | 📞 ${candidatePhone}\n\n` +
-          `---\n\n` +
-          `### 💼 Professional Summary\n` +
-          `Accomplished **${targetRole}** with verified academic standing from **${topIssuer}**. Demonstrates strong domain competencies in **${keySkills}**, critical problem-solving capabilities, and international qualifications.\n\n` +
-          `---\n\n` +
-          `### 🛠 Core Technical Competencies\n` +
-          `• **Key Skills & Frameworks**: ${keySkills}\n` +
-          `• **Systems & Methodologies**: Architecture Design, CI/CD Automation, Test-Driven Development\n` +
-          `• **Verified Standing**: Sovereign credential audit passed with zero-knowledge cryptographic verification\n\n` +
-          `---\n\n` +
-          `### 🎓 Verified Academic Credentials\n` +
-          (credentials.length > 0
-            ? credentials.map((c: any) => `• **${c.name}** — *${c.issuer}* (${c.type.toUpperCase()})\n  *Goal*: "${c.purpose || 'Global Career'}" | *Status*: Cryptographically Verified`).join('\n\n')
-            : `• **${topCred}** — *${topIssuer}*\n  *Grade*: First-Class Honours / High Distinction | *Evaluation*: UK ENIC / WES Equivalent`) +
-          `\n\n---\n\n` +
-          `### 🏆 Professional Experience & Milestones\n` +
-          `• **Lead Technical Contributor** — Engineering & Innovation\n` +
-          `  - Spearheaded scalable architecture initiatives resulting in improved throughput and reliability.\n` +
-          `  - Built robust APIs and modular client workflows adhering to production best practices.\n` +
-          `  - Collaborated across agile teams to deliver mission-critical software solutions on schedule.`;
-        actionLabel = 'Download Formatted CV (.md)';
-      }
-      sources = credentials.length > 0 ? credentials.map((c: any) => c.name) : ['User Stored Credentials', 'Verified Profile Data'];
-    }
-    // C. Preference Selected (Executing generation after structured question button tap)
-    else if (message.includes('[PREFERENCE_SELECTED]') || message.includes('I choose:')) {
-      const topCred = credentials[0]?.name || 'Bachelor of Science in Computer Science';
-      const topIssuer = credentials[0]?.issuer || 'Accredited University';
-
-      const isStudyPlanChoice = /study|plan|roadmap|semester|week|sprint/i.test(message) || /study|plan|roadmap/i.test(q);
-      const isAssignmentChoice = /assignment|coursework|rubric|grading/i.test(message) || /assignment|coursework/i.test(q);
-      const isLetterChoice = /letter|sop|statement|waiver/i.test(message) || /letter|sop|waiver/i.test(q);
-
-      if (isStudyPlanChoice) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Preference Applied**: Target study timeline and parameters incorporated.\n` +
-          `• **Vault Integration**: Aligned against academic milestones from **${topIssuer}** (${topCred}).\n\n` +
-          `# 🗺️ STUDENT STUDY PLAN & ACADEMIC ROADMAP\n\n` +
-          `**Subject Area**: ${topCred}\n` +
-          `**Institution**: ${topIssuer}\n` +
-          `**Target Timeline**: Structured Milestone Sprint\n\n` +
-          `---\n\n` +
-          `### 📅 Phase 1: Core Theoretical Foundations (Weeks 1–2)\n` +
-          `• **Objective**: Complete in-depth literature review and grasp fundamental theorems.\n` +
-          `• **Milestone**: Critical review of 5 seminal domain papers and conceptual architecture summary.\n\n` +
-          `### 🔬 Phase 2: Practical Implementation & Lab Exercises (Weeks 3–4)\n` +
-          `• **Objective**: Construct functional proof-of-concept projects and complete applied problem sets.\n` +
-          `• **Milestone**: Verified source code repository with comprehensive test cases.\n\n` +
-          `### 📊 Phase 3: Advanced Optimization & Examination Preparation (Weeks 5–6)\n` +
-          `• **Objective**: Finalize portfolio deliverables, profile efficiency, and conduct mock defense review.\n` +
-          `• **Milestone**: Completed academic dossier ready for submission.`;
-        actionLabel = 'Export Student Study Plan (.md)';
-      } else if (isAssignmentChoice) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Preference Applied**: Coursework structure and assessment parameters incorporated.\n\n` +
-          `# 📚 ACADEMIC COURSEWORK & ASSIGNMENT BLUEPRINT\n\n` +
-          `**Subject Area**: ${topCred}\n` +
-          `**Curriculum Reference**: ${topIssuer} Verified Coursework Syllabus\n\n` +
-          `---\n\n` +
-          `### 🎯 Module 1: Comprehensive Theoretical Foundations\n` +
-          `• **Objective**: Synthesize core domain literature and establish foundational research questions.\n` +
-          `• **Task**: Write a 1,500-word critical literature review.\n\n` +
-          `### 🔬 Module 2: Applied Practical Implementation\n` +
-          `• **Objective**: Construct a functioning modular software component or comparative experiment.\n` +
-          `• **Deliverable**: Complete source code repository with test cases.\n\n` +
-          `### 📊 Module 3: Defense & Assessment Matrix\n` +
-          `• **Rubric**: 40% Methodology, 35% Implementation Quality, 25% Presentation.`;
-        actionLabel = 'Export Assignment Blueprint (.md)';
-      } else if (isLetterChoice) {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Preference Applied**: Tone and institutional requirements incorporated.\n\n` +
-          `# APPLICATION STATEMENT OF PURPOSE\n\n` +
-          `**Target Profile**: ${topCred} (${topIssuer})\n\n` +
-          `---\n\n` +
-          `Dear Admissions Committee,\n\n` +
-          `I am writing to express my strong commitment to the degree program. My verified coursework at **${topIssuer}** has provided a rigorous foundation in quantitative reasoning, systems architecture, and research methodologies.\n\n` +
-          `### Key Highlights:\n` +
-          `• Verified First-Class academic completion at ${topIssuer}.\n` +
-          `• Proven ability to execute complex research and technical deliverables.\n\n` +
-          `Sincerely,\n` +
-          `**Alex Johnson**`;
-        actionLabel = 'Download Statement of Purpose (.md)';
-      } else {
-        responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Preference Applied**: Target domain specialization and format applied.\n` +
-          `• **Vault Integration**: Evaluated **${credentials.length} verified credentials** from **${topIssuer}**.\n\n` +
-          `# EXECUTIVE DELIVERABLE: CURRICULUM VITAE\n\n` +
-          `**Candidate**: Alex Johnson\n` +
-          `**Specialization**: Audited Software Systems & AI Architecture\n\n` +
-          `---\n\n` +
-          `### 💼 Executive Summary\n` +
-          `Accomplished technical professional with verified credentials from **${topIssuer}** (${topCred}). Demonstrates end-to-end expertise in distributed computing, modern software architectures, and rigorous academic foundations.\n\n` +
-          `---\n\n` +
-          `### 🎓 Verified Qualifications\n` +
-          (credentials.length > 0
-            ? credentials.map((c: any) => `• **${c.name}** (${c.issuer}) — *${c.type.toUpperCase()}*\n  *Evaluation*: Cryptographically Verified`).join('\n\n')
-            : `• **${topCred}** — *${topIssuer}*\n  *Classification*: First-Class Honours / High Distinction Equivalent`) +
-          `\n\n---\n\n` +
-          `### 🛠 Core Domain Competencies\n` +
-          `• **Systems & Architecture**: Cloud Infrastructure, TypeScript, Python, Node.js, High-Throughput APIs\n` +
-          `• **Analytical Frameworks**: Distributed Systems, Algorithmic Optimization, Cryptographic Protocols\n` +
-          `• **Leadership**: Project Delivery, Mentorship, Cross-Functional Technical Direction`;
-        actionLabel = 'Download Generated Document';
-      }
-    }
-    // D. Presentation Slides Generation
-    else if (q.includes('slide') || q.includes('presentation') || q.includes('pitch deck')) {
-      const topCred = credentials[0]?.name || 'Academic Degree & Verified Qualifications';
-      const topIssuer = credentials[0]?.issuer || 'Accredited University';
-      responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-        `• **Task Scope**: Generating a 4-slide executive presentation deck.\n` +
-        `• **Vault Alignment**: Grounded in verified qualifications from **${topIssuer}** (${topCred}).\n\n` +
-        `# PRESENTATION SLIDES: ${topCred.toUpperCase()}\n\n` +
-        `---\n\n` +
-        `## Slide 1: Executive Credential Overview\n` +
-        `• **Candidate Credential**: ${topCred}\n` +
-        `• **Issuing Body**: ${topIssuer}\n` +
-        `• **Audit Status**: Cryptographically Verified by KRED Sovereign Engine\n` +
-        `• **Target Application**: Global Admissions & Executive Standing\n\n` +
-        `---\n\n` +
-        `## Slide 2: Academic Metrics & Equivalencies\n` +
-        `• **Classification**: First-Class Honours / High Distinction Equivalent\n` +
-        `• **Global Alignment**: Evaluated against UK ENIC and North American WES standards\n` +
-        `• **Prerequisites Audit**: 100% prerequisite fulfillment across advanced analytical modules\n\n` +
-        `---\n\n` +
-        `## Slide 3: Core Domain Competencies\n` +
-        `• **Technical & Analytical Focus**: Systems Architecture, Quantitative Analysis, Research Methods\n` +
-        `• **Verified Coursework**: Audited transcript milestones and practical project execution\n\n` +
-        `---\n\n` +
-        `## Slide 4: Strategic Milestones & Next Steps\n` +
-        `• **Credential Sovereignty**: Fully client-side encrypted and anchored in Sovereign Vault\n` +
-        `• **Official Attestation**: Zero-knowledge proof ready for university or employer verification\n` +
-        `• **Next Steps**: Export as PDF, share verification dossier, or submit to admissions committee`;
-      actionLabel = 'Download Generated Document';
-    }
-    // E. Student Plan / Study Plan / Academic Roadmap Requests
-    else if (q.includes('student plan') || q.includes('study plan') || q.includes('roadmap') || q.includes('syllabus') || q.includes('study schedule')) {
-      const topCred = credentials[0]?.name || 'Computer Science & AI Systems';
-      const topIssuer = credentials[0]?.issuer || 'Academic Faculty';
-
-      // Ask one clarifying question to narrow down timeline if needed
-      responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-        `• **Task Objective**: Build an intensive Student Study Plan & Milestone Roadmap.\n` +
-        `• **Context**: Referencing your background in **${topCred}** from **${topIssuer}**.\n\n` +
-        `To structure your milestones with the ideal depth, what is your preferred study timeline?`;
-
-      fallbackQuestions = [
-        {
-          id: 'study_timeline',
-          title: 'Select your study plan duration:',
-          multiSelect: false,
-          options: [
-            { id: '4weeks', label: '4-Week Intensive Sprint' },
-            { id: '8weeks', label: '8-Week Comprehensive Plan' },
-            { id: 'semester', label: 'Full Semester (16 Weeks)' },
-          ],
-        },
-      ];
-    }
-    // F. Explicit Document Generation Requests (CV / Resume)
-    else if (q.includes('create a cv') || q.includes('generate a cv') || q.includes('make a cv') || q.includes('build a cv') || q.includes('write a cv') || q.includes('create cv') || q.includes('generate cv') || q.includes('create resume') || q.includes('generate resume')) {
-      responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-        `• **Task Objective**: Construct an executive-grade Curriculum Vitae.\n` +
-        `• **Vault Context**: Incorporating your verified diplomas and academic standing.\n\n` +
-        `Which primary focus should I tailor your CV toward?`;
-      fallbackQuestions = [
-        {
-          id: 'cv_target',
-          title: 'Select target focus for your CV:',
-          multiSelect: false,
-          options: [
-            { id: 'industry', label: 'Tech & Industry Role' },
-            { id: 'grad', label: 'Graduate School Admission' },
-            { id: 'executive', label: 'Executive Leadership' },
-          ],
-        },
-      ];
-    }
-    // G. Coursework / Assignment Requests
-    else if (q.includes('assignment') || q.includes('coursework') || q.includes('homework')) {
-      const topCred = credentials[0]?.name || 'Computer Science & Software Architecture';
-      const topIssuer = credentials[0]?.issuer || 'Academic Faculty';
-
-      responseText = `### 🧠 Sovereign Agent Reasoning\n` +
-        `• **Task Objective**: Generate an Academic Assignment Blueprint with grading rubrics.\n` +
-        `• **Course Context**: Grounded in ${topCred} from ${topIssuer}.\n\n` +
-        `# 📚 ACADEMIC COURSEWORK & ASSIGNMENT BLUEPRINT\n\n` +
-        `**Subject Area**: ${topCred}\n` +
-        `**Curriculum Reference**: ${topIssuer} Verified Coursework Syllabus\n\n` +
-        `---\n\n` +
-        `### 🎯 Module 1: Comprehensive Theoretical Foundations\n` +
-        `• **Objective**: Synthesize core domain literature and establish foundational research questions.\n` +
-        `• **Task**: Write a 1,500-word critical literature review evaluating standard architectural methodologies.\n\n` +
-        `### 🔬 Module 2: Applied Practical Implementation\n` +
-        `• **Objective**: Construct an end-to-end working system or comparative data analysis.\n` +
-        `• **Deliverable**: Complete source code repository with comprehensive unit tests and design documentation.\n\n` +
-        `### 📊 Module 3: Verification & Defense Presentation\n` +
-        `• **Objective**: Present findings against benchmark criteria and defend architectural choices.\n` +
-        `• **Rubric**: 40% Methodology, 35% Implementation Quality, 25% Presentation & Defense.`;
-      actionLabel = 'Export Assignment Blueprint';
-    }
-    // G. Live Search / Current Events Queries
-    else if (activeSearchResults.length > 0) {
-      const topSnippets = activeSearchResults.slice(0, 3).map((s) => `• **${s.title}**: ${s.snippet}`).join('\n\n');
-      responseText = `Based on real-time web verification regarding **"${message}"**:\n\n` +
-        `${topSnippets}\n\n` +
-        `• **Current Context (2026)**: Verified from live search indexing and institutional criteria.\n\n` +
-        `Let me know if you would like me to synthesize this into a structured document, draft an application, or research deeper details!`;
-      sources = ['DuckDuckGo Web Search', ...activeSearchResults.slice(0, 2).map((r) => r.title)];
-    }
-    // H. Educational / Explanatory Queries (e.g. "teach me...", "explain...", "what is...")
-    else if (q.startsWith('teach') || q.startsWith('explain') || q.includes('how to') || q.includes('what is') || q.includes('how does') || q.includes('why is')) {
-      const topic = message.replace(/^(can you\s+)?(please\s+)?(teach me(\s+about)?|explain(\s+to me)?|what is|how does)\s+/i, '').trim() || message;
-      responseText = `### Understanding ${topic}\n\n` +
-        `Let's break down **${topic}** with clear, practical intuition:\n\n` +
-        `#### 1. Core Concept\n` +
-        `At its core, **${topic}** is built around modular, verifiable principles. By understanding how the core components interact, you can reason about complex systems and solve real problems efficiently.\n\n` +
-        `#### 2. Key Fundamentals\n` +
-        `• **First Principles**: Master the underlying mechanics and mathematical/logical baselines.\n` +
-        `• **Practical Application**: Build hands-on implementations and test against realistic benchmarks.\n` +
-        `• **Evaluation & Optimization**: Identify bottlenecks and refine efficiency.\n\n` +
-        `What specific area of **${topic}** would you like to dive into next?`;
-      actionLabel = undefined;
-    }
-    // I. Default Conversational Answer
-    else {
-      responseText = `Here is information regarding your inquiry on "${message}":\n\n` +
-        `• **Analysis**: Evaluated with direct context from your session ${credentials.length > 0 ? `and ${credentials.length} verified credentials in your Sovereign Vault` : ''}.\n` +
-        `• **Capabilities**: You can ask me to explain any subject, search the live web for 2026 updates, or synthesize executive documents (CVs, cover letters, coursework blueprints, presentation decks).\n\n` +
-        `Let me know how you'd like to proceed!`;
-      actionLabel = undefined;
-    }
+    // C. If external AI models were unavailable or failed, return honest failed response (no mock templates)
+    console.warn(`[AI Routing] Live external models failed to respond: ${lastErrorDetails || 'No valid response received.'}`);
 
     res.json({
-      text: responseText,
-      sources,
-      actionLabel,
-      provider: 'kred-sovereign-engine',
-      questions: fallbackQuestions,
-      form: fallbackForm,
+      text: `⚠️ Failed to respond: ${lastErrorDetails || 'The AI model was unable to process your request. Please check your API key or connection and try again.'}`,
+      sources: [],
+      provider: 'failed',
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Internal server error' });
@@ -1087,25 +641,30 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 });
 
 async function startServer() {
-  if (!isProd) {
-    // Dynamic import of Vite for dev mode
-    const { createServer } = await import('vite');
-    const vite = await createServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
-  } else {
-    // Production static serving
-    app.use(express.static(path.resolve(__dirname, 'dist')));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
-    });
-  }
+  try {
+    if (!isProd) {
+      // Dynamic import of Vite for dev mode
+      const { createServer } = await import('vite');
+      const vite = await createServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } else {
+      // Production static serving
+      app.use(express.static(path.resolve(__dirname, 'dist')));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      });
+    }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 KRED Full-Stack Server running at http://0.0.0.0:${PORT}`);
-  });
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 KRED Full-Stack Server running at http://0.0.0.0:${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
 }
 
 startServer();

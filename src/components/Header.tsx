@@ -136,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
           {currentUser ? (
-            <div className="flex items-center gap-1.5">
+            <div className="hidden sm:flex items-center gap-1.5">
               <button
                 onClick={() => handleNav('assistant')}
                 className="h-9 px-2.5 sm:px-3 rounded-xl bg-white border border-[#E4E4E7] hover:border-[#10C77A] text-[12px] sm:text-[12.5px] font-semibold text-[#18181B] inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs"
@@ -145,7 +145,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="w-5 h-5 rounded-full bg-[#10C77A] text-[#18181B] text-[10.5px] font-bold grid place-items-center">
                   {currentUser.avatarLetter || 'K'}
                 </span>
-                <span className="hidden sm:inline max-w-[110px] truncate">{currentUser.name}</span>
+                <span className="max-w-[110px] truncate">{currentUser.name}</span>
               </button>
               <button
                 onClick={async () => {
@@ -162,23 +162,24 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={handleSignInClick}
-              className="h-9 px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-medium text-[#18181B] bg-white border border-[#E4E4E7] hover:border-[#18181B] hover:bg-[#FAF9F5] transition-all cursor-pointer inline-flex items-center gap-1.5 shadow-2xs active:scale-95"
+              className="hidden sm:inline-flex h-9 px-3 sm:px-3.5 rounded-xl text-[12.5px] sm:text-[13px] font-medium text-[#18181B] bg-white border border-[#E4E4E7] hover:border-[#18181B] hover:bg-[#FAF9F5] transition-all cursor-pointer items-center gap-1.5 shadow-2xs active:scale-95"
             >
               <LogIn className="w-3.5 h-3.5" />
               <span>Sign In</span>
             </button>
           )}
 
+          {/* Desktop Only Get Started - Hidden on mobile nav bar */}
           <button
             type="button"
             onClick={() => handleNav('get-started')}
-            className="h-9 px-3.5 sm:px-4 rounded-xl bg-[#18181B] text-white text-[12.5px] sm:text-[13px] font-medium hover:bg-[#10C77A] hover:text-[#18181B] transition-all cursor-pointer shadow-xs inline-flex items-center gap-1.5 active:scale-95"
+            className="hidden lg:inline-flex h-9 px-3.5 sm:px-4 rounded-xl bg-[#18181B] text-white text-[12.5px] sm:text-[13px] font-medium hover:bg-[#10C77A] hover:text-[#18181B] transition-all cursor-pointer shadow-xs items-center gap-1.5 active:scale-95"
           >
             <span>Get Started</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
 
-          {/* Mobile Navigation Toggle */}
+          {/* Mobile Navigation Toggle (Menu Icon) */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="lg:hidden w-9 h-9 rounded-xl bg-white border border-[#E4E4E7] flex items-center justify-center text-[#18181B] cursor-pointer shadow-2xs active:scale-95"
@@ -193,6 +194,31 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Mobile Menu Drawer Modal */}
       {mobileMenuOpen && (
         <div className="lg:hidden pointer-events-auto fixed inset-x-3 top-[72px] rounded-2xl border border-[#E4E4E7] bg-white/98 backdrop-blur-xl p-4 shadow-2xl space-y-3 animate-toast z-50 max-h-[85vh] overflow-y-auto">
+          {currentUser && (
+            <div className="p-3 rounded-xl bg-[#F4F4F5] flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-full bg-[#10C77A] text-[#18181B] text-[12px] font-bold grid place-items-center">
+                  {currentUser.avatarLetter || 'K'}
+                </span>
+                <div className="flex flex-col">
+                  <span className="text-[13px] font-semibold text-[#18181B] leading-tight">{currentUser.name}</span>
+                  <span className="text-[11px] text-[#71717A]">{currentUser.email}</span>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  await authService.signOut();
+                  setMobileMenuOpen(false);
+                  onShowToast('Signed out of vault.');
+                }}
+                className="p-1.5 text-[#71717A] hover:text-rose-600 rounded-lg"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           <div className="space-y-1">
             {[
               { id: 'how', label: 'How It Works' },
@@ -214,18 +240,22 @@ export const Header: React.FC<HeaderProps> = ({
             ))}
           </div>
 
-          <div className="pt-3 border-t border-[#E4E4E7] flex gap-2">
-            <button
-              onClick={handleSignInClick}
-              className="flex-1 h-10 rounded-xl border border-[#E4E4E7] text-[13px] font-semibold text-[#18181B] hover:bg-[#F4F4F5] transition-colors"
-            >
-              Sign In
-            </button>
+          <div className="pt-3 border-t border-[#E4E4E7] flex flex-col gap-2">
+            {!currentUser && (
+              <button
+                onClick={handleSignInClick}
+                className="w-full h-10 rounded-xl border border-[#E4E4E7] text-[13px] font-semibold text-[#18181B] hover:bg-[#F4F4F5] transition-colors flex items-center justify-center gap-1.5"
+              >
+                <LogIn className="w-4 h-4" />
+                <span>Sign In</span>
+              </button>
+            )}
             <button
               onClick={() => handleNav('get-started')}
-              className="flex-1 h-10 rounded-xl bg-[#18181B] text-white text-[13px] font-semibold hover:bg-[#10C77A] hover:text-[#18181B] transition-colors shadow-xs"
+              className="w-full h-10 rounded-xl bg-[#18181B] text-white text-[13px] font-semibold hover:bg-[#10C77A] hover:text-[#18181B] transition-colors shadow-xs flex items-center justify-center gap-1.5"
             >
-              Get Started
+              <span>Get Started</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>

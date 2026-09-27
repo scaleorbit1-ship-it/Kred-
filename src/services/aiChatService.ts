@@ -308,18 +308,35 @@ export const detectIntentMode = (
   }
 
   // 2. Explicit Generation / Creation / Editing Intent (Triggers AGENT MODE)
+  const isGenerationVerb = /(create|generate|write|draft|build|synthesize|produce|compose|make|show|give|design|formulate)/i.test(q);
+  const isFlashcardIntent = /(flashcard|flashcards|flash\s+card|flash\s+cards|study\s+card|study\s+cards|quiz\s+card|quiz\s+cards)/i.test(q);
+  const isSlideIntent = /(slide|slides|presentation|pitch\s+deck|slide\s+deck|deck|keynote|powerpoint)/i.test(q);
+  const isReceiptIntent = /(receipt|invoice|bill|sales\s+receipt|order\s+receipt|billing)/i.test(q);
+  const isCvIntent = /(cv|resume|curriculum\s+vitae|ats\s+cv|ats\s+resume)/i.test(q);
+  const isCoverLetterIntent = /(cover\s+letter|statement\s+of\s+purpose|sop|letter\s+of\s+intent|application\s+letter)/i.test(q);
+  const isStudyPlanIntent = /(study\s+plan|student\s+plan|academic\s+roadmap|learning\s+roadmap|study\s+schedule|coursework\s+plan)/i.test(q);
+
   const docCreationVerbs = /(create|generate|write|draft|build|synthesize|produce|compose|make)\s+(me\s+)?(a\s+|an\s+)?/i;
   const docEditingVerbs = /(edit|revise|update|rewrite|improve|modify|re-write)\s+(this|the|my)?\s*/i;
   const docConversionVerbs = /(turn|convert)\s+(this|my\s+[\w\s]+)\s+into\s+(a\s+|an\s+)?/i;
-  const targetDocNouns = /(cv|resume|curriculum\s+vitae|cover\s+letter|sop|statement\s+of\s+purpose|slides?|presentation|pitch\s+deck|slide\s+deck|syllabus|assignment|coursework|study\s+plan|plan|roadmap|dossier|waiver\s+letter|recommendation\s+letter|application\s+dossier|executive\s+summary|rubric)/i;
+  const targetDocNouns = /(cv|resume|curriculum\s+vitae|cover\s+letter|sop|statement\s+of\s+purpose|slides?|presentation|pitch\s+deck|slide\s+deck|flashcards?|flash\s+cards?|study\s+cards?|receipt|invoice|bill|syllabus|assignment|coursework|study\s+plan|plan|roadmap|dossier|waiver\s+letter|recommendation\s+letter|application\s+dossier|executive\s+summary|rubric)/i;
 
   const hasExplicitDocGeneration =
+    (isGenerationVerb && (isFlashcardIntent || isSlideIntent || isReceiptIntent || isCvIntent || isCoverLetterIntent || isStudyPlanIntent)) ||
     (docCreationVerbs.test(q) && targetDocNouns.test(q)) ||
     (docEditingVerbs.test(q) && targetDocNouns.test(q)) ||
     (docConversionVerbs.test(q) && targetDocNouns.test(q)) ||
+    isFlashcardIntent ||
+    q.includes('generate a flash card') ||
+    q.includes('generate a flashcard') ||
+    q.includes('generate flashcards') ||
+    q.includes('generate flash card') ||
     q.includes('generate a cv') ||
     q.includes('generate cv') ||
     q.includes('generate a resume') ||
+    q.includes('generate receipt') ||
+    q.includes('generate an invoice') ||
+    q.includes('create a receipt') ||
     q.includes('write a cover letter') ||
     q.includes('turn this into a resume') ||
     q.includes('turn this into a cv') ||
@@ -332,7 +349,10 @@ export const detectIntentMode = (
     q.startsWith('command: call agent') ||
     q === 'call agent' ||
     q === 'call the agent' ||
-    q === 'call agent chat';
+    q === 'call agent chat' ||
+    q.includes('preview canvas') ||
+    q.includes('open canvas') ||
+    q.includes('in canvas');
 
   const taskAnalysis = analyzeTaskRequest(query);
 
@@ -434,348 +454,63 @@ export const getAiAuditResponse = async (
       }),
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.text) {
-        const sources =
-          data.sources ||
-          (webSearchResults.length > 0
-            ? webSearchResults.map((r) => r.title)
-            : credentials.length > 0
-            ? credentials.slice(0, 3).map((c) => c.name)
-            : ['Kred AI']);
+    const data = await response.json().catch(() => null);
 
-        const isDeliverableDoc =
-          effectiveMode === 'agent' &&
-          (data.text.includes('# ') || data.text.includes('## ') || data.text.length > 200);
-
-        return {
-          answer: data.text,
-          sources,
-          actionLabel: isDeliverableDoc ? 'Download Generated Document' : undefined,
-          provider: data.provider,
-          questions: data.questions,
-          form: data.form,
-          searchResults: webSearchResults.length > 0 ? webSearchResults : undefined,
-          mode: effectiveMode,
-          isDocument: isDeliverableDoc,
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Backend /api/chat unreachable, using local Kred engine:', err);
-  }
-
-  // 2. Intelligent Local Fallback Engine
-
-  // Ambiguous check fallback
-  if (q.includes('look at my resume') || q.includes('look at my cv') || q === 'can you look at my resume?') {
-    return {
-      answer: "Want me to just review it, or generate an improved version?",
-      sources: credentials.length > 0 ? [credentials[0].name] : ['Kred AI'],
-      mode: 'chat',
-      isDocument: false,
-    };
-  }
-
-  // ==========================================
-  // AGENT MODE FALLBACKS (Synthesizes files, renders in canvas)
-  // ==========================================
-  if (effectiveMode === 'agent') {
-    // If reasoning layer detected missing parameters and built an intake form
-    if (intentAnalysis.taskAnalysis?.suggestedForm && !rawQuery.includes('[FORM_SUBMISSION]')) {
-      const analysis = intentAnalysis.taskAnalysis;
+    if (!response.ok || !data || data.error) {
+      const errorMsg = data?.error || `Request failed with HTTP status ${response.status}.`;
       return {
-        answer: `${analysis.reasoningTrace}\n\nTo synthesize your complete **${analysis.taskLabel}**, please specify your target parameters in the interactive form below:`,
-        sources: credentials.length > 0 ? credentials.slice(0, 2).map((c) => c.name) : ['Sovereign Reasoning Engine'],
-        form: analysis.suggestedForm,
-        mode: 'agent',
+        answer: `⚠️ Failed to respond: ${errorMsg}`,
+        sources: [],
+        provider: 'failed',
+        mode: effectiveMode,
         isDocument: false,
       };
     }
 
-    const topCred = credentials[0]?.name || 'Academic Degree & Qualifications';
-    const topIssuer = credentials[0]?.issuer || 'Accredited Institution';
+    if (data && data.text) {
+      const sources =
+        data.sources ||
+        (webSearchResults.length > 0
+          ? webSearchResults.map((r) => r.title)
+          : credentials.length > 0
+          ? credentials.slice(0, 3).map((c) => c.name)
+          : ['Kred AI']);
 
-    // A. Student Plan / Study Plan / Roadmap Generation
-    if (q.includes('student') || q.includes('study plan') || q.includes('plan') || q.includes('roadmap')) {
+      const isDeliverableDoc =
+        (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration) &&
+        (data.text.includes('# ') || data.text.includes('## ') || data.text.includes('### ') || data.text.includes('Card') || data.text.includes('Front') || data.text.includes('Slide') || data.text.includes('Receipt') || data.text.length > 150);
+
       return {
-        answer: `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Generating a structured **Student Study Plan & Academic Roadmap**.\n` +
-          `• **Vault Grounding**: Calibrated against your verified background in **${topCred}** from **${topIssuer}**.\n` +
-          `• **Structure**: Divided into modular milestone phases with weekly targets, recommended readings, practical labs, and review rubrics.\n\n` +
-          `# 🗺️ STUDENT STUDY PLAN & ACADEMIC ROADMAP\n\n` +
-          `**Subject Area**: ${topCred}\n` +
-          `**Academic Reference**: ${topIssuer}\n` +
-          `**Milestone Scope**: 6-Week Intensive Academic Sprint\n\n` +
-          `---\n\n` +
-          `### 📅 Phase 1: Foundational Mastery & Literature Review (Weeks 1–2)\n` +
-          `• **Objective**: Consolidate core mathematical foundations and analyze key domain literature.\n` +
-          `• **Key Study Modules**:\n` +
-          `  - Theoretical models, logic architecture, and formal requirements.\n` +
-          `  - In-depth review of canonical research papers.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 1*: Analyze 5 seminal papers and map conceptual dependencies.\n` +
-          `  - *Week 2*: Draft a theoretical framework summary evaluating architectural tradeoffs.\n` +
-          `• **Deliverable**: Comprehensive theoretical overview & concept map.\n\n` +
-          `---\n\n` +
-          `### 🔬 Phase 2: Practical Implementation & Lab Milestones (Weeks 3–4)\n` +
-          `• **Objective**: Apply theory to hands-on problem sets and functional software systems.\n` +
-          `• **Applied Focus**: Systems design, test-driven implementation, and algorithmic optimization.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 3*: Build core module architecture with complete unit test suites.\n` +
-          `  - *Week 4*: Benchmark performance, test edge cases, and profile bottlenecks.\n` +
-          `• **Deliverable**: Working laboratory implementation with design documentation.\n\n` +
-          `---\n\n` +
-          `### 📊 Phase 3: Synthesis, Review & Examination Preparation (Weeks 5–6)\n` +
-          `• **Objective**: Consolidate milestones, profile efficiency, and prepare for academic or committee defense.\n` +
-          `• **Weekly Milestones**:\n` +
-          `  - *Week 5*: Complete end-to-end audit of all study deliverables.\n` +
-          `  - *Week 6*: Mock defense, presentation rehearsal, and self-assessment rubric evaluation.\n` +
-          `• **Final Deliverable**: Completed academic study portfolio ready for evaluation.`,
-        sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Academic Syllabus & Transcripts'],
-        actionLabel: 'Export Student Study Plan (.md)',
-        provider: 'built-in',
-        mode: 'agent',
-        isDocument: true,
+        answer: data.text,
+        sources,
+        actionLabel: isDeliverableDoc ? (data.actionLabel || 'Open in Preview Canvas') : undefined,
+        provider: data.provider || 'gemini',
+        questions: data.questions,
+        form: data.form,
+        searchResults: webSearchResults.length > 0 ? webSearchResults : undefined,
+        mode: effectiveMode,
+        isDocument: isDeliverableDoc,
       };
     }
 
-    // B. Coursework / Assignment Blueprint Generation
-    if (q.includes('assignment') || q.includes('coursework') || q.includes('syllabus') || q.includes('homework')) {
-      return {
-        answer: `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Generating an **Academic Coursework & Assignment Blueprint**.\n` +
-          `• **Vault Grounding**: Calibrated against accredited curricula from **${topIssuer}**.\n\n` +
-          `# 📚 ACADEMIC COURSEWORK & ASSIGNMENT BLUEPRINT\n\n` +
-          `**Subject Area**: ${topCred}\n` +
-          `**Curriculum Reference**: ${topIssuer} Verified Coursework Syllabus\n\n` +
-          `---\n\n` +
-          `### 🎯 Module 1: Comprehensive Theoretical Foundations\n` +
-          `• **Objective**: Synthesize core domain literature and establish foundational research questions.\n` +
-          `• **Task**: Write a 1,500-word critical literature review evaluating standard architectural methodologies.\n\n` +
-          `### 🔬 Module 2: Applied Practical Implementation\n` +
-          `• **Objective**: Construct an end-to-end working system or comparative data analysis.\n` +
-          `• **Deliverable**: Complete source code repository with comprehensive unit tests and design documentation.\n\n` +
-          `### 📊 Module 3: Verification & Defense Presentation\n` +
-          `• **Objective**: Present findings against benchmark criteria and defend architectural choices.\n` +
-          `• **Rubric**: 40% Methodology, 35% Implementation Quality, 25% Presentation & Defense.`,
-        sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Academic Course Syllabus'],
-        actionLabel: 'Export Assignment Blueprint (.md)',
-        provider: 'built-in',
-        mode: 'agent',
-        isDocument: true,
-      };
-    }
-
-    // C. Cover Letter / Statement of Purpose Generation
-    if (q.includes('cover letter') || q.includes('statement of purpose') || q.includes('sop') || q.includes('letter')) {
-      return {
-        answer: `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Crafting a compelling **Application Statement of Purpose / Cover Letter**.\n` +
-          `• **Vault Grounding**: Incorporating verified academic credentials from **${topIssuer}** (${topCred}).\n\n` +
-          `# APPLICATION STATEMENT OF PURPOSE\n\n` +
-          `**Target Opportunity**: Graduate Admissions / Senior Technical Role\n` +
-          `**Academic Reference**: ${topIssuer} (${topCred})\n\n` +
-          `---\n\n` +
-          `Dear Admissions Committee / Hiring Team,\n\n` +
-          `I am writing to express my enthusiastic candidacy. Having completed accredited coursework in **${topCred}** at **${topIssuer}**, I offer a strong foundation in rigorous analytical methodology, scalable system architecture, and collaborative project execution.\n\n` +
-          `### Key Highlights:\n` +
-          `• **Academic Excellence**: Verified First-Class standing and rigorous module completions.\n` +
-          `• **Applied Problem Solving**: End-to-end implementation of complex distributed workflows.\n` +
-          `• **Commitment**: Dedicated to driving impactful research and scalable innovation.\n\n` +
-          `Sincerely,\n` +
-          `**Candidate Profile**`,
-        sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Sovereign Vault Attestations'],
-        actionLabel: 'Download Cover Letter (.md)',
-        provider: 'built-in',
-        mode: 'agent',
-        isDocument: true,
-      };
-    }
-
-    // D. Presentation Slides Generation
-    if (q.includes('slide') || q.includes('presentation') || q.includes('deck')) {
-      return {
-        answer: `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Synthesizing a 4-slide executive presentation deck.\n` +
-          `• **Vault Grounding**: Grounded in verified qualifications from **${topIssuer}** (${topCred}).\n\n` +
-          `# PRESENTATION SLIDES: ${topCred.toUpperCase()}\n\n` +
-          `---\n\n` +
-          `## Slide 1: Executive Overview & Qualifications\n` +
-          `• **Candidate Credential**: ${topCred}\n` +
-          `• **Issuing Body**: ${topIssuer}\n` +
-          `• **Audit Status**: Cryptographically Verified by Kred Sovereign Engine\n` +
-          `• **Target Application**: Global Admissions & Career Standing\n` +
-          `*Presenter Notes: Welcome the audience and highlight institutional accreditation and tamper-proof verification.*\n\n` +
-          `---\n\n` +
-          `## Slide 2: Academic Metrics & Equivalencies\n` +
-          `• **Classification**: First-Class Honours / High Distinction Equivalent\n` +
-          `• **Global Alignment**: Evaluated against UK ENIC and North American WES standards\n` +
-          `• **Prerequisites Audit**: 100% prerequisite fulfillment across advanced analytical modules\n` +
-          `*Presenter Notes: Discuss academic rigor, transcript audit verification, and GPA conversion.*\n\n` +
-          `---\n\n` +
-          `## Slide 3: Core Domain Competencies\n` +
-          `• **Technical & Analytical Focus**: Systems Architecture, Quantitative Analysis, Research Methods\n` +
-          `• **Verified Coursework**: Audited transcript milestones and practical project execution\n` +
-          `• **Leadership & Execution**: Cross-functional problem solving and academic deliverables\n` +
-          `*Presenter Notes: Showcase practical domain competencies extracted from verified student records.*\n\n` +
-          `---\n\n` +
-          `## Slide 4: Strategic Milestones & Next Steps\n` +
-          `• **Credential Sovereignty**: Fully client-side encrypted and anchored in Sovereign Vault\n` +
-          `• **Official Attestation**: Zero-knowledge proof ready for university or employer verification\n` +
-          `• **Next Steps**: Export as PDF, share verification dossier, or submit to admissions committee\n` +
-          `*Presenter Notes: Conclude presentation and answer committee questions.*`,
-        sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Presentation Engine'],
-        actionLabel: 'Download Formatted Presentation (.md)',
-        provider: 'built-in',
-        mode: 'agent',
-        isDocument: true,
-      };
-    }
-
-    // E. CV / Resume Generation (ONLY when explicitly requested)
-    if (q.includes('cv') || q.includes('resume')) {
-      return {
-        answer: `### 🧠 Sovereign Agent Reasoning\n` +
-          `• **Task Scope**: Constructing an executive **Curriculum Vitae (CV)**.\n` +
-          `• **Vault Grounding**: Mapping verified credentials from **${topIssuer}** into structured sections.\n\n` +
-          `# CURRICULUM VITAE\n\n` +
-          `**Executive Summary**\n` +
-          `Accomplished graduate and credential holder with verified standing from **${topIssuer}**. Demonstrates strong domain competencies, verified academic excellence, and international qualifications.\n\n` +
-          `---\n\n` +
-          `### 🎓 Verified Academic Credentials & Education\n\n` +
-          (credentials.length > 0
-            ? credentials
-                .map(
-                  (c) =>
-                    `• **${c.name}**\n  *Issuing Body*: ${c.issuer} | *Type*: ${c.type.toUpperCase()} | *Status*: Verified Sovereign Attestation\n  *Application Target*: "${c.purpose || 'Global Recognition'}"`
-                )
-                .join('\n\n')
-            : `• **Verified Academic Qualification**\n  *Institution*: ${topIssuer} | *Status*: Verified Sovereign Attestation`) +
-          `\n\n---\n\n` +
-          `### 💼 Core Competencies & Skills\n` +
-          `• **Domain Knowledge**: Systems Engineering, Computational Analysis, Research Methodologies\n` +
-          `• **Verified Credentials**: Cryptographically audited transcripts, English language proficiency credit\n` +
-          `• **Professional Attributes**: Critical Problem Solving, Cross-Border Project Execution, Team Leadership\n\n` +
-          `---\n\n` +
-          `### 📜 Verified Documents & Attestations\n` +
-          `All listed credentials have been client-side encrypted and cryptographically anchored in the Kred Sovereign Vault.`,
-        sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Academic Degree Record'],
-        actionLabel: 'Download Formatted CV (.md)',
-        provider: 'built-in',
-        mode: 'agent',
-        isDocument: true,
-      };
-    }
-
-    // F. Generic Deliverable / Custom File Generation
     return {
-      answer: `### 🧠 Sovereign Agent Reasoning\n` +
-        `• **Task Scope**: Generating custom deliverable for "${query}".\n` +
-        `• **Vault Grounding**: Verified against **${topCred}** from **${topIssuer}**.\n\n` +
-        `# VERIFIED APPLICATION DOSSIER\n\n` +
-        `**Target Profile**: ${topCred} (${topIssuer})\n\n` +
-        `---\n\n` +
-        `### 📋 Executive Summary\n` +
-        `This dossier compiles the verified qualifications, academic transcripts, and institutional attestations for global admission and employment verification.\n\n` +
-        `### 🎓 Qualifications on File\n` +
-        (credentials.length > 0
-          ? credentials.map((c) => `• **${c.name}** (${c.issuer}) — ${c.status.toUpperCase()}`).join('\n')
-          : `• **Verified Academic Qualification** — ${topIssuer}`) +
-        `\n\n### 🛡️ Cryptographic Integrity\n` +
-        `Zero-knowledge proof validated against sovereign cryptographic standards.`,
-      sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Kred Sovereign Vault'],
-      actionLabel: 'Download Application Dossier',
-      provider: 'built-in',
-      mode: 'agent',
-      isDocument: true,
+      answer: '⚠️ Failed to respond. No output was returned by the AI model.',
+      sources: [],
+      provider: 'failed',
+      mode: effectiveMode,
+      isDocument: false,
     };
-  }
-
-  // ==========================================
-  // CHAT MODE FALLBACKS (Plain conversational reply, no canvas, no agent button)
-  // ==========================================
-
-  // Teaching Requests: "teach me this", "teach me python", "explain..."
-  if (q.startsWith('teach me') || q.includes('can you teach me') || q.includes('explain to me') || q.includes('how does') || q.includes('how to learn')) {
-    const topicRaw = query.replace(/^(can you\s+)?teach me(\s+how to|\s+about|\s+this|\s+that)?\s*/i, '').trim();
-    const topic = topicRaw ? topicRaw.charAt(0).toUpperCase() + topicRaw.slice(1) : 'Advanced System Architecture';
-
+  } catch (err: any) {
+    console.error('Backend /api/chat error:', err);
     return {
-      answer: `### Understanding ${topic}\n\n` +
-        `Let's break down **${topic}** into clear, practical principles:\n\n` +
-        `#### 1. Core Concept\n` +
-        `At its core, **${topic}** structures complex problems into modular, repeatable workflows. Understanding how components interact allows you to build resilient and scalable solutions.\n\n` +
-        `#### 2. Key Areas to Master\n` +
-        `• **Fundamental Principles**: Grasping data structures, logic flow, and core design constraints.\n` +
-        `• **Practical Implementation**: Writing clean, testable code and handling edge cases effectively.\n` +
-        `• **Evaluation & Optimization**: Profiling bottlenecks and measuring system performance.\n\n` +
-        `Let me know what specific aspect of ${topic} you'd like to explore further!`,
-      sources: ['Kred Knowledge Base'],
-      mode: 'chat',
+      answer: `⚠️ Failed to respond: ${err?.message || 'Unable to reach the AI model service. Please check your network connection.'}`,
+      sources: [],
+      provider: 'failed',
+      mode: effectiveMode,
       isDocument: false,
     };
   }
 
-  // Greetings / Small talk
-  const isGreeting =
-    /^(hello|hi|hey|greetings|good morning|good afternoon|good evening|howdy|sup|yo|welcome|hey there|hello there)(\s|\!|\.|\?|$)/i.test(q) ||
-    q.includes('how are you') ||
-    q === 'who are you' ||
-    q === 'what are you';
-
-  if (isGreeting) {
-    return {
-      answer: `Hello! 👋 I'm Kred, your AI career and credential intelligence assistant. How can I help you today?\n\nI can help you with:\n• Brainstorming, explaining complex concepts, writing code, and learning any topic\n• Auditing academic criteria, WES/UK ENIC equivalencies, and university admissions\n• Real-time web search and 2026 factual information\n• Synthesizing executive CVs, cover letters, coursework blueprints, and slide decks\n\nWhat would you like to explore or work on?`,
-      sources: credentials.length > 0 ? credentials.slice(0, 2).map((c) => c.name) : ['Kred AI'],
-      mode: 'chat',
-      isDocument: false,
-    };
-  }
-
-  // Questions ABOUT an uploaded document (Chat Mode)
-  if (q.includes('what does this say') || q.includes('is this a good') || q.includes('audit my') || q.includes('my education') || q.includes('my qualification') || q.includes('my degree') || q.includes('my transcript')) {
-    const topDoc = credentials[0]?.name || 'your uploaded degree';
-    const topIssuer = credentials[0]?.issuer || 'your university';
-    return {
-      answer: `Based on **${topDoc}** from **${topIssuer}** in your vault:\n\n` +
-        `• **Academic Standing**: The record confirms accredited completion with verified coursework.\n` +
-        `• **Equivalency**: Aligns with international benchmarks for degree recognition.\n` +
-        `• **Recommendations**: Your prerequisites meet standard criteria for graduate admission and professional licensing.\n\n` +
-        `Let me know if you would like me to review specific modules or explain prerequisite requirements!`,
-      sources: credentials.length > 0 ? credentials.map((c) => c.name) : ['Kred Vault Audit'],
-      mode: 'chat',
-      isDocument: false,
-    };
-  }
-
-  // Web search response
-  if (webSearchResults.length > 0) {
-    const mainSnippet = webSearchResults[0]?.snippet || '';
-    const mainTitle = webSearchResults[0]?.title || '';
-    const topDomain = webSearchResults[0]?.source || 'DuckDuckGo';
-
-    return {
-      answer: `Based on real-time web verification regarding **"${query}"**:\n\n${mainSnippet ? `• **Latest Findings**: ${mainSnippet}\n\n` : ''}` +
-        `• **Current Context (2026)**: Updates and reports from **${topDomain}** confirm recent progress and guidelines.\n\n` +
-        `Let me know if you would like me to synthesize this into a structured document, draft an application, or research deeper details!`,
-      sources: ['DuckDuckGo Web Search', ...webSearchResults.slice(0, 2).map((r) => r.title)],
-      searchResults: webSearchResults,
-      mode: 'chat',
-      isDocument: false,
-    };
-  }
-
-  // Default conversational answer
-  return {
-    answer: `Here is information regarding your inquiry on "${query}":\n\n` +
-      `Your qualifications and documents in the vault have been evaluated against international standards (such as UK ENIC and WES). ` +
-      `Feel free to ask any specific questions, request advice on admissions or licensing pathways, or ask for clarifications!`,
-    sources: credentials.length > 0 ? credentials.slice(0, 2).map((c) => c.name) : ['Kred AI'],
-    mode: 'chat',
-    isDocument: false,
-  };
 };
 
 export default getAiAuditResponse;
