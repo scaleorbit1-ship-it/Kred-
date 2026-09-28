@@ -284,6 +284,294 @@ export const analyzeTaskRequest = (
 };
 
 /**
+ * Autonomously prepares clarification questions for open-ended generation requests
+ * such as Pitch Deck, Graphics, CV, etc.
+ */
+export const getAutonomousQuestionsForQuery = (query: string): ClarificationQuestion[] | undefined => {
+  const q = query.toLowerCase().trim();
+  if (
+    q.includes('[preference_selected]') ||
+    q.includes('target:') ||
+    q.includes('i choose:') ||
+    q.includes('selected specifications:') ||
+    q.includes('seed round') ||
+    q.includes('series a') ||
+    q.includes('5-slide') ||
+    q.includes('infographic on') ||
+    q.includes('diagram of') ||
+    q.includes('for my') ||
+    q.includes('about biology') ||
+    q.includes('for biology') ||
+    q.includes('about quantum') ||
+    q.includes('on javascript') ||
+    q.includes('about javascript') ||
+    q.includes('on python') ||
+    q.includes('about python') ||
+    q.includes('for chemistry') ||
+    q.includes('about chemistry')
+  ) {
+    return undefined;
+  }
+
+  // 1. Flashcards / Study Cards requests
+  if (
+    /(flash\s*cards?|flshcards?|study\s*cards?|quiz\s*cards?|revision\s*cards?)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on') &&
+    !q.includes('regarding')
+  ) {
+    return [
+      {
+        id: 'flashcard_topic',
+        title: "What subject or topic would you like these flashcards to cover?",
+        multiSelect: false,
+        options: [
+          { id: 'cs_cloud', label: 'Computer Science, Cloud Architecture & Cyber Security' },
+          { id: 'med_health', label: 'Medicine, Pharmacology & Healthcare Sciences' },
+          { id: 'biz_finance', label: 'Business, Finance, Accounting & Economics' },
+          { id: 'gen_science', label: 'General Science, Physics, Chemistry & Biology' },
+          { id: 'law_governance', label: 'Law, Compliance, Governance & Ethics' },
+        ],
+      },
+      {
+        id: 'flashcard_depth',
+        title: "What deck format and depth do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'simple_review', label: 'Simple Quick-Review (5 Essential Core Concept Cards)' },
+          { id: 'comprehensive_prep', label: 'Comprehensive Exam Prep (10 In-Depth Flashcards with Key Takeaways)' },
+        ],
+      },
+    ];
+  }
+
+  // 2. CV / Resume requests
+  if (
+    /(cv|resume|curriculum\s+vitae|work\s+history|portfolio\s+resume)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on') &&
+    !q.includes('attached') &&
+    !q.includes('uploaded')
+  ) {
+    return [
+      {
+        id: 'cv_purpose',
+        title: "What is the target role or focus for this CV / Resume?",
+        multiSelect: false,
+        options: [
+          { id: 'tech_eng', label: 'Senior Software Engineer / Tech Lead & Cloud Architect' },
+          { id: 'exec_mgmt', label: 'Executive, Director & Corporate Leadership' },
+          { id: 'acad_research', label: 'Academic, Research, Scholarship & Higher Education' },
+          { id: 'fin_ops', label: 'Finance, Operations, Strategy & Business Consulting' },
+          { id: 'prod_design', label: 'Product Management & UX Architecture' },
+        ],
+      },
+      {
+        id: 'cv_format',
+        title: "What layout and structural format do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'simple_ats', label: 'Simple 1-Page Modern Industry Resume (ATS-Optimized)' },
+          { id: 'comprehensive_cv', label: 'Multi-Page Comprehensive Executive & Academic CV' },
+        ],
+      },
+    ];
+  }
+
+  // 3. Certificate & Award requests
+  if (
+    /(certificate|diploma|award\s+certificate|completion\s+certificate|attestation\s+certificate)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'cert_type',
+        title: "What type of certificate or award document do you need?",
+        multiSelect: false,
+        options: [
+          { id: 'course_completion', label: 'Professional Course Completion & Competency Certificate' },
+          { id: 'academic_honor', label: 'Academic Excellence & Credential Verification Award' },
+          { id: 'leadership_award', label: 'Employee Leadership & Achievement Recognition Certificate' },
+          { id: 'compliance_cert', label: 'Compliance, Security & Training Attestation Certificate' },
+        ],
+      },
+      {
+        id: 'cert_format',
+        title: "What citation and layout style do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'formal_honor', label: 'Formal Award Layout with High-Honor Citation & Signatures' },
+          { id: 'standard_verified', label: 'Standard Verified Certificate with Security ID & Attestation' },
+        ],
+      },
+    ];
+  }
+
+  // 4. Invoice & Receipt requests
+  if (
+    /(invoice|receipt|tax\s+invoice|sales\s+receipt|billing\s+statement|payment\s+receipt)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'invoice_type',
+        title: "What type of financial document do you want to generate?",
+        multiSelect: false,
+        options: [
+          { id: 'client_invoice', label: 'Client Tax Invoice & Commercial Services Statement' },
+          { id: 'sales_receipt', label: 'Official Sales Receipt & Proof of Payment Voucher' },
+          { id: 'milestone_billing', label: 'Project Milestone Billing & Retainer Statement' },
+          { id: 'expense_voucher', label: 'Expense Reimbursement & Disbursement Voucher' },
+        ],
+      },
+      {
+        id: 'invoice_depth',
+        title: "What level of itemization do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'itemized_table', label: 'Detailed Itemized Table (Line items, Unit Rate, Tax & Balance Due)' },
+          { id: 'summary_statement', label: 'Summary Billing Statement (Flat fee & payment confirmation)' },
+        ],
+      },
+    ];
+  }
+
+  // 5. Letterhead & Business Letters
+  if (
+    /(letterhead|business\s+letter|formal\s+letter|cover\s+letter|recommendation\s+letter|application\s+letter)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'letter_purpose',
+        title: "What is the primary purpose of this letter?",
+        multiSelect: false,
+        options: [
+          { id: 'cover_letter', label: 'Executive Job Application & High-Impact Cover Letter' },
+          { id: 'business_proposal', label: 'Corporate Partnership & Business Proposal Letter' },
+          { id: 'reference_letter', label: 'Academic Reference & Professional Recommendation Letter' },
+          { id: 'verification_letter', label: 'Official Verification & Credential Attestation Statement' },
+        ],
+      },
+      {
+        id: 'letter_tone',
+        title: "What tone and format do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'executive_formal', label: 'Executive Formal (Authoritative with letterhead header & signature blocks)' },
+          { id: 'modern_persuasive', label: 'Modern Business Narrative (Concise & persuasive)' },
+        ],
+      },
+    ];
+  }
+
+  // 6. Pitch deck requests without specified target
+  if (
+    /(pitch\s+deck|pitch\s+presentation|investor\s+deck)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'pitch_deck_topic',
+        title: "What topic would you like this pitch deck to be about?",
+        multiSelect: false,
+        options: [
+          { id: 'ai_tech', label: 'AI & Next-Gen Tech Platform (Product, architecture, traction & vision)' },
+          { id: 'fintech_identity', label: 'FinTech, Payments & Sovereign Digital Identity' },
+          { id: 'healthcare_medtech', label: 'Healthcare, MedTech & Digital Health Innovation' },
+          { id: 'saas_enterprise', label: 'Enterprise B2B SaaS & Workflow Automation' },
+          { id: 'cleantech_energy', label: 'Sustainability, Clean Energy & ClimateTech' },
+        ],
+      },
+      {
+        id: 'pitch_deck_depth',
+        title: "What presentation depth and format do you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'simple', label: 'Simple 5-Slide Executive Pitch (Punchy bullet points, high-level vision)' },
+          { id: 'comprehensive', label: 'Comprehensive Investor Deck (In-depth market data, traction & speaker notes)' },
+        ],
+      },
+    ];
+  }
+
+  // 7. Graphics / Infographic / Visual Diagram requests
+  if (
+    /(graphics?|infographics?|diagrams?|visual\s+graphics?|visuals?|charts?)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'graphics_topic',
+        title: 'What topic or system is this graphic about?',
+        multiSelect: false,
+        options: [
+          { id: 'cloud_architecture', label: 'System Architecture & Cloud Technology Data Flow' },
+          { id: 'business_kpis', label: 'Business Model, Revenue & Key Performance Metrics (KPIs)' },
+          { id: 'product_comparison', label: 'Product Feature Comparison & Technology Benchmark Matrix' },
+          { id: 'project_roadmap', label: 'Strategic Project Milestones & Execution Roadmap' },
+          { id: 'security_protocol', label: 'Cybersecurity, Cryptography & Identity Protocol' },
+        ],
+      },
+      {
+        id: 'graphics_depth',
+        title: 'What visual style and detail level do you prefer?',
+        multiSelect: false,
+        options: [
+          { id: 'simple', label: 'Simple & Clean (Minimalist visual highlights & key statistics)' },
+          { id: 'more_detailed', label: 'Comprehensive & Detailed (In-depth component specs & flowchart nodes)' },
+        ],
+      },
+    ];
+  }
+
+  // 8. Open-ended slides / presentation requests
+  if (
+    /(slides?|presentations?|powerpoint|keynote)/i.test(q) &&
+    !q.includes('about') &&
+    !q.includes('for') &&
+    !q.includes('on')
+  ) {
+    return [
+      {
+        id: 'presentation_focus',
+        title: "What is the primary topic and focus for this presentation?",
+        multiSelect: false,
+        options: [
+          { id: 'simple_overview', label: 'Simple Executive Briefing & Key Takeaways' },
+          { id: 'deep_dive', label: 'More comprehensive Deep Dive & Research Presentation' },
+          { id: 'keynote', label: 'Keynote & Conference Presentation' },
+          { id: 'training', label: 'Educational Workshop & Training Module' },
+        ],
+      },
+      {
+        id: 'presentation_depth',
+        title: "What level of detail would you prefer?",
+        multiSelect: false,
+        options: [
+          { id: 'simple', label: 'Simple & concise (High-level talking points)' },
+          { id: 'more_detailed', label: 'More in-depth & detailed (Full slide notes & background context)' },
+        ],
+      },
+    ];
+  }
+
+  return undefined;
+};
+
+/**
  * Detects whether the user's intent requires AGENT MODE or CHAT MODE.
  */
 export const detectIntentMode = (
@@ -476,7 +764,11 @@ export const getAiAuditResponse = async (
           ? credentials.slice(0, 3).map((c) => c.name)
           : ['Kred AI']);
 
+      const autoQuestions = getAutonomousQuestionsForQuery(query);
+      const effectiveQuestions = (data.questions && data.questions.length > 0) ? data.questions : autoQuestions;
+
       const isDeliverableDoc =
+        !effectiveQuestions &&
         (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration) &&
         (data.text.includes('# ') || data.text.includes('## ') || data.text.includes('### ') || data.text.includes('Card') || data.text.includes('Front') || data.text.includes('Slide') || data.text.includes('Receipt') || data.text.length > 150);
 
@@ -485,7 +777,7 @@ export const getAiAuditResponse = async (
         sources,
         actionLabel: isDeliverableDoc ? (data.actionLabel || 'Open in Preview Canvas') : undefined,
         provider: data.provider || 'gemini',
-        questions: data.questions,
+        questions: effectiveQuestions,
         form: data.form,
         searchResults: webSearchResults.length > 0 ? webSearchResults : undefined,
         mode: effectiveMode,

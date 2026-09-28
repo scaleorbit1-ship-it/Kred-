@@ -381,6 +381,17 @@ app.get('/api/search', async (req: Request, res: Response) => {
   }
 });
 
+// Favicon endpoints for browser tab preview
+app.get(['/favicon.svg', '/favicon.ico'], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <rect x="14" y="16" width="30" height="22" rx="4.5" fill="#0E1E36" stroke="#FFFFFF" stroke-width="1.75"/>
+  <rect x="9" y="10" width="30" height="22" rx="4.5" fill="#3A6EFF" stroke="#FFFFFF" stroke-width="1.75"/>
+  <rect x="4" y="4" width="30" height="22" rx="4.5" fill="#10C77A" stroke="#FFFFFF" stroke-width="1.75"/>
+</svg>`);
+});
+
 // Health check endpoint
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
@@ -392,6 +403,368 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// Clarification Question Generator for open-ended deliverable inquiries (Flashcards, CV, Certificate, Invoice, Pitch Decks, Graphics, Letterhead, Study Plan, etc.)
+function getAutonomousClarificationQuestions(message: string): { text: string; questions: any[] } | null {
+  const lowerMsg = message.toLowerCase().trim();
+
+  // 1. Bypass only if the user has already provided specific choices or answered clarification specifications
+  const hasSpecificChoice =
+    lowerMsg.includes('[preference_selected]') ||
+    lowerMsg.includes('i choose:') ||
+    lowerMsg.includes('selected specifications:') ||
+    lowerMsg.includes('selected option:') ||
+    lowerMsg.includes('my preference is:');
+
+  if (hasSpecificChoice) {
+    return null;
+  }
+
+  // 2. Flashcards / Study Cards requests (including typos like flshcard, flshcards, etc.)
+  const isFlashcard =
+    /(flash\s*cards?|flsh\s*cards?|flshcard|flashcard|study\s*cards?|quiz\s*cards?|revision\s*cards?|study\s*deck)/i.test(lowerMsg);
+
+  if (isFlashcard) {
+    return {
+      text: "I can craft an interactive study flashcard deck for you. Let's configure your deck specifications:",
+      questions: [
+        {
+          id: 'flashcard_topic',
+          title: "What subject or topic would you like these flashcards to cover?",
+          multiSelect: false,
+          options: [
+            { id: 'cs_cloud', label: 'Computer Science, Cloud Architecture & Cyber Security' },
+            { id: 'med_health', label: 'Medicine, Pharmacology & Healthcare Sciences' },
+            { id: 'biz_finance', label: 'Business, Finance, Accounting & Economics' },
+            { id: 'gen_science', label: 'General Science, Physics, Chemistry & Biology' },
+            { id: 'law_governance', label: 'Law, Compliance, Governance & Ethics' },
+          ],
+        },
+        {
+          id: 'flashcard_level',
+          title: "What academic and concept difficulty level do you need?",
+          multiSelect: false,
+          options: [
+            { id: 'foundational', label: 'Foundational & Beginner (Core definitions and essential formulas)' },
+            { id: 'intermediate', label: 'Intermediate & Applied (Problem-solving and scenario analysis)' },
+            { id: 'expert_exam', label: 'Advanced & Board Exam Prep (High-yield technical questions & edge cases)' },
+          ],
+        },
+        {
+          id: 'flashcard_depth',
+          title: "What deck size and format do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'simple_review', label: 'Quick-Review (5 High-Yield Essential Concept Cards)' },
+            { id: 'comprehensive_prep', label: 'Comprehensive Exam Prep (10 In-Depth Flashcards with Key Takeaways)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 3. CV / Resume / Curriculum Vitae requests
+  const isCv =
+    /(cv|resume|curriculum\s+vitae|work\s+history|portfolio\s+resume|biodata)/i.test(lowerMsg);
+
+  if (isCv) {
+    return {
+      text: "I can synthesize an executive Curriculum Vitae grounded in your credentials. Let's tailor the structure:",
+      questions: [
+        {
+          id: 'cv_purpose',
+          title: "What is the target role or industry focus for this CV / Resume?",
+          multiSelect: false,
+          options: [
+            { id: 'tech_eng', label: 'Senior Software Engineer / Tech Lead & Cloud Architect' },
+            { id: 'exec_mgmt', label: 'Executive, Director & Corporate Leadership' },
+            { id: 'acad_research', label: 'Academic, Research, Scholarship & Higher Education' },
+            { id: 'fin_ops', label: 'Finance, Operations, Strategy & Business Consulting' },
+            { id: 'prod_design', label: 'Product Management & UX Architecture' },
+          ],
+        },
+        {
+          id: 'cv_seniority',
+          title: "What is your target career seniority level?",
+          multiSelect: false,
+          options: [
+            { id: 'senior_lead', label: 'Senior / Principal / Staff Level (High impact technical achievements)' },
+            { id: 'executive_csuite', label: 'Executive / VP / C-Suite (P&L ownership, org scale & governance)' },
+            { id: 'mid_professional', label: 'Mid-Level Professional (Core skills, execution & domain growth)' },
+            { id: 'career_transition', label: 'Career Transition / Pivot (Transferable skills & credentials)' },
+          ],
+        },
+        {
+          id: 'cv_format',
+          title: "What layout and structural format do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'simple_ats', label: '1-Page Modern Industry Resume (ATS-Optimized & Bullet Points)' },
+            { id: 'comprehensive_cv', label: 'Multi-Page Executive & Academic CV (Detailed publications & roles)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 4. Pitch deck / Presentation requests
+  const isPitchDeck =
+    /(pitch\s+deck|pitch\s+presentation|investor\s+deck|slide\s+deck|presentation|slides?|powerpoint|keynote)/i.test(lowerMsg);
+
+  if (isPitchDeck) {
+    return {
+      text: "I can synthesize a high-impact presentation pitch deck for you. Let's tailor the presentation to your exact audience:",
+      questions: [
+        {
+          id: 'pitch_deck_topic',
+          title: "What topic or venture is this pitch deck about?",
+          multiSelect: false,
+          options: [
+            { id: 'ai_tech', label: 'AI & Next-Gen Tech Platform (Product, architecture, traction & vision)' },
+            { id: 'fintech_identity', label: 'FinTech, Payments & Sovereign Digital Identity' },
+            { id: 'healthcare_medtech', label: 'Healthcare, MedTech & Digital Health Innovation' },
+            { id: 'saas_enterprise', label: 'Enterprise B2B SaaS & Workflow Automation' },
+            { id: 'cleantech_energy', label: 'Sustainability, Clean Energy & ClimateTech' },
+          ],
+        },
+        {
+          id: 'pitch_deck_audience',
+          title: "Who is your primary target audience for this presentation?",
+          multiSelect: false,
+          options: [
+            { id: 'angel_seed', label: 'Angel & Pre-Seed / Seed Investors (Focus on problem, TAM & vision)' },
+            { id: 'vc_growth', label: 'Venture Capital & Growth Funds (Focus on unit economics, MoM growth & moat)' },
+            { id: 'enterprise_clients', label: 'Enterprise Commercial Clients & Partners (Focus on ROI & integration)' },
+            { id: 'competition_demo', label: 'Demo Day & Pitch Competition (Punchy 3-minute high-impact narrative)' },
+          ],
+        },
+        {
+          id: 'pitch_deck_depth',
+          title: "What presentation depth and format do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'simple', label: '5-Slide Executive Overview (Punchy bullet points, high-level vision)' },
+            { id: 'comprehensive', label: '10-Slide Investor Deck (In-depth market data, traction & speaker notes)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 5. Certificate & Award requests
+  const isCertificate =
+    /(certificate|diploma|award\s+certificate|completion\s+certificate|attestation\s+certificate|credential\s+award)/i.test(lowerMsg);
+
+  if (isCertificate) {
+    return {
+      text: "I can generate an official verified certificate document for you. Let's configure the attestation:",
+      questions: [
+        {
+          id: 'cert_type',
+          title: "What type of certificate or award document do you need?",
+          multiSelect: false,
+          options: [
+            { id: 'course_completion', label: 'Professional Course Completion & Competency Certificate' },
+            { id: 'academic_honor', label: 'Academic Excellence & Credential Verification Award' },
+            { id: 'leadership_award', label: 'Employee Leadership & Achievement Recognition Certificate' },
+            { id: 'compliance_cert', label: 'Compliance, Security & Training Attestation Certificate' },
+          ],
+        },
+        {
+          id: 'cert_honor_level',
+          title: "What honor or recognition level should be stated?",
+          multiSelect: false,
+          options: [
+            { id: 'with_distinction', label: 'High Honors / With Distinction (Exemplary Performance)' },
+            { id: 'verified_mastery', label: 'Certified Professional Mastery & Competency Pass' },
+            { id: 'standard_attestation', label: 'Official Credential Attestation & Verification Record' },
+          ],
+        },
+        {
+          id: 'cert_format',
+          title: "What citation and layout style do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'formal_honor', label: 'Formal Executive Award Layout (With Seal, Signatures & Citation)' },
+            { id: 'standard_verified', label: 'Standard Verified Certificate (With Security ID & Date Stamp)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 6. Invoice & Receipt requests
+  const isInvoiceReceipt =
+    /(invoice|receipt|tax\s+invoice|sales\s+receipt|billing\s+statement|payment\s+receipt|expense\s+voucher)/i.test(lowerMsg);
+
+  if (isInvoiceReceipt) {
+    return {
+      text: "I can generate a verified invoice or receipt document for you. Let's configure the billing terms:",
+      questions: [
+        {
+          id: 'invoice_type',
+          title: "What type of financial document do you want to generate?",
+          multiSelect: false,
+          options: [
+            { id: 'client_invoice', label: 'Client Tax Invoice & Commercial Services Statement' },
+            { id: 'sales_receipt', label: 'Official Sales Receipt & Proof of Payment Voucher' },
+            { id: 'milestone_billing', label: 'Project Milestone Billing & Retainer Statement' },
+            { id: 'expense_voucher', label: 'Expense Reimbursement & Disbursement Voucher' },
+          ],
+        },
+        {
+          id: 'billing_structure',
+          title: "What billing structure or rate model should be used?",
+          multiSelect: false,
+          options: [
+            { id: 'hourly_daily', label: 'Professional Hourly / Daily Service Rate & Time Log' },
+            { id: 'fixed_milestone', label: 'Fixed Deliverable Milestone / Lump-Sum Fee' },
+            { id: 'product_sale', label: 'Product / Itemized Goods Sale with Sales Tax & Shipping' },
+          ],
+        },
+        {
+          id: 'invoice_depth',
+          title: "What level of itemization do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'itemized_table', label: 'Detailed Itemized Table (Line items, Unit Rate, Tax & Balance Due)' },
+            { id: 'summary_statement', label: 'Summary Billing Statement (Flat fee & payment confirmation)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 7. Letterhead & Business Letters
+  const isLetterhead =
+    /(letterhead|business\s+letter|formal\s+letter|cover\s+letter|recommendation\s+letter|application\s+letter)/i.test(lowerMsg);
+
+  if (isLetterhead) {
+    return {
+      text: "I can prepare formal correspondence with executive letterhead formatting. Let's specify the details:",
+      questions: [
+        {
+          id: 'letter_purpose',
+          title: "What is the primary purpose of this letter?",
+          multiSelect: false,
+          options: [
+            { id: 'cover_letter', label: 'Executive Job Application & High-Impact Cover Letter' },
+            { id: 'business_proposal', label: 'Corporate Partnership & Business Proposal Letter' },
+            { id: 'reference_letter', label: 'Academic Reference & Professional Recommendation Letter' },
+            { id: 'verification_letter', label: 'Official Verification & Credential Attestation Statement' },
+          ],
+        },
+        {
+          id: 'letter_audience',
+          title: "Who is the intended recipient?",
+          multiSelect: false,
+          options: [
+            { id: 'recruiter_hiring', label: 'Hiring Committee, Executive Search & Recruiter' },
+            { id: 'corporate_partner', label: 'Prospective Client, Executive Director or Partner' },
+            { id: 'academic_dean', label: 'University Admissions Committee or Academic Dean' },
+            { id: 'official_entity', label: 'Legal, Financial or Sovereign Verification Authority' },
+          ],
+        },
+        {
+          id: 'letter_tone',
+          title: "What tone and format do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'executive_formal', label: 'Executive Formal (Authoritative with letterhead header & signature blocks)' },
+            { id: 'modern_persuasive', label: 'Modern Business Narrative (Concise & persuasive)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 8. Graphics, Infographics, and Visual Diagrams
+  const isGraphics =
+    /(graphics?|infographics?|diagrams?|visual\s+graphics?|visuals?|charts?)/i.test(lowerMsg);
+
+  if (isGraphics) {
+    return {
+      text: "I can generate an interactive visual graphic document for you. Let's configure your diagram:",
+      questions: [
+        {
+          id: 'graphics_topic',
+          title: 'What topic or system is this graphic about?',
+          multiSelect: false,
+          options: [
+            { id: 'cloud_architecture', label: 'System Architecture & Cloud Technology Data Flow' },
+            { id: 'business_kpis', label: 'Business Model, Revenue & Key Performance Metrics (KPIs)' },
+            { id: 'product_comparison', label: 'Product Feature Comparison & Technology Benchmark Matrix' },
+            { id: 'project_roadmap', label: 'Strategic Project Milestones & Execution Roadmap' },
+            { id: 'security_protocol', label: 'Cybersecurity, Cryptography & Identity Protocol' },
+          ],
+        },
+        {
+          id: 'diagram_type',
+          title: "What visual diagram layout do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'flowchart_nodes', label: 'Multi-Step Flowchart & Component Sequence' },
+            { id: 'kpi_dashboard', label: 'Metric KPI Dashboard & Comparative Matrix Table' },
+            { id: 'system_layers', label: 'Layered Stack Diagram (Client, API, Security & Storage)' },
+          ],
+        },
+        {
+          id: 'graphics_depth',
+          title: 'What visual style and detail level do you prefer?',
+          multiSelect: false,
+          options: [
+            { id: 'simple', label: 'Simple & Clean (Minimalist visual highlights & key statistics)' },
+            { id: 'more_detailed', label: 'Comprehensive & Detailed (In-depth component specs & flowchart nodes)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  // 9. Study Plan & Educational Roadmaps
+  const isStudyPlan =
+    /(study\s+plan|academic\s+roadmap|syllabus|revision\s+schedule|learning\s+path)/i.test(lowerMsg);
+
+  if (isStudyPlan) {
+    return {
+      text: "I can generate a personalized academic study plan for you. Let's configure your schedule:",
+      questions: [
+        {
+          id: 'study_subject',
+          title: "What subject or target exam is this study plan for?",
+          multiSelect: false,
+          options: [
+            { id: 'cs_ai', label: 'Computer Science, Algorithms & Full-Stack AI Engineering' },
+            { id: 'medicine_usmle', label: 'Medical Board Prep (USMLE, MCAT, NCLEX or Pharmacology)' },
+            { id: 'finance_cfa', label: 'Finance & Investment Banking (CFA, CPA or Financial Modeling)' },
+            { id: 'gre_gmat', label: 'Graduate Admissions (GRE, GMAT or LSAT Preparation)' },
+          ],
+        },
+        {
+          id: 'study_timeline',
+          title: "What is your target preparation duration?",
+          multiSelect: false,
+          options: [
+            { id: 'intensive_4wk', label: 'Intensive 4-Week Sprint (Daily high-yield milestones)' },
+            { id: 'standard_12wk', label: 'Comprehensive 12-Week Semester Roadmap (Paced with review blocks)' },
+            { id: 'weekend_bootcamp', label: 'Part-Time & Weekend Focused (Flexible self-paced modules)' },
+          ],
+        },
+        {
+          id: 'study_format',
+          title: "What study plan structure do you prefer?",
+          multiSelect: false,
+          options: [
+            { id: 'structured_table', label: 'Weekly Milestone Table (Themes, Daily Goals & Checkpoints)' },
+            { id: 'checklist_phases', label: 'Phase-Based Action Checklist (Foundations, Practice & Mock Tests)' },
+          ],
+        },
+      ],
+    };
+  }
+
+  return null;
+}
+
 // AI Chat endpoint powered by Gemini (gemini-3.8-flash with gemini-3.1-flash-lite fallback)
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
@@ -399,6 +772,19 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Missing or invalid message string.' });
+      return;
+    }
+
+    // Check for autonomous clarification questions (instant popup style for open-ended requests)
+    const autonomousClarification = getAutonomousClarificationQuestions(message);
+    if (autonomousClarification) {
+      res.json({
+        text: autonomousClarification.text,
+        sources: [],
+        actionLabel: undefined,
+        provider: 'kred-clarification-engine',
+        questions: autonomousClarification.questions,
+      });
       return;
     }
 
@@ -459,6 +845,90 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         }
       }
 
+      // Autonomous questions for open-ended pitch deck, graphics, and CV requests
+      if (!clarificationQuestions) {
+        const lowerMsg = message.toLowerCase().trim();
+        const hasSpecificChoice =
+          lowerMsg.includes('[preference_selected]') ||
+          lowerMsg.includes('i choose:') ||
+          lowerMsg.includes('target:') ||
+          lowerMsg.includes('for my') ||
+          lowerMsg.includes('seed round') ||
+          lowerMsg.includes('series a') ||
+          lowerMsg.includes('infographic on') ||
+          lowerMsg.includes('diagram of');
+
+        if (!hasSpecificChoice) {
+          if (
+            lowerMsg === 'generate a pitch deck' ||
+            lowerMsg === 'pitch deck' ||
+            lowerMsg === 'create a pitch deck' ||
+            lowerMsg === 'make a pitch deck' ||
+            (lowerMsg.includes('pitch deck') && !lowerMsg.includes('seed') && !lowerMsg.includes('investor'))
+          ) {
+            clarificationQuestions = [
+              {
+                id: 'pitch_deck_purpose',
+                title: "What's this pitch deck for?",
+                multiSelect: false,
+                options: [
+                  { id: 'investor', label: 'Job / Investor presentation (Seed / Series A)' },
+                  { id: 'portfolio', label: 'Product launch & portfolio demo' },
+                  { id: 'sales', label: 'Client sales & enterprise partnership' },
+                  { id: 'strategy', label: 'Internal company & board strategy' },
+                ],
+              },
+            ];
+            cleanText = "I can synthesize a high-impact presentation pitch deck for you. What is the primary focus of this deck?";
+          } else if (
+            lowerMsg === 'generate a graphics' ||
+            lowerMsg === 'generate graphics' ||
+            lowerMsg === 'create graphics' ||
+            lowerMsg === 'generate graphic' ||
+            lowerMsg === 'make a graphic' ||
+            lowerMsg.includes('graphics') ||
+            lowerMsg.includes('infographic')
+          ) {
+            clarificationQuestions = [
+              {
+                id: 'graphics_format',
+                title: 'What visual format do you need for this graphic?',
+                multiSelect: false,
+                options: [
+                  { id: 'infographic', label: 'Visual Data Infographic & Key Metrics' },
+                  { id: 'architecture', label: 'System Architecture & Technical Diagram' },
+                  { id: 'comparison', label: 'Feature Comparison & Benchmark Chart' },
+                  { id: 'roadmap', label: 'Process Roadmap & Milestone Flowchart' },
+                ],
+              },
+            ];
+            cleanText = "I can generate an interactive visual graphic document for you. Which visual format best fits your requirement?";
+          } else if (
+            lowerMsg === 'generate a cv' ||
+            lowerMsg === 'create a cv' ||
+            lowerMsg === 'make a cv' ||
+            lowerMsg === 'generate a resume' ||
+            lowerMsg === 'cv' ||
+            lowerMsg === 'resume'
+          ) {
+            clarificationQuestions = [
+              {
+                id: 'cv_purpose',
+                title: "What's this CV for?",
+                multiSelect: false,
+                options: [
+                  { id: 'job_app', label: 'Job application' },
+                  { id: 'portfolio', label: 'Portfolio' },
+                  { id: 'linkedin', label: 'LinkedIn summary' },
+                  { id: 'academic', label: 'Graduate school admission' },
+                ],
+              },
+            ];
+            cleanText = "I can synthesize an executive Curriculum Vitae grounded in your credentials. What's this CV for?";
+          }
+        }
+      }
+
       let interactiveForm: any = undefined;
 
       const isDocument =
@@ -472,12 +942,19 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         cleanText.toLowerCase().includes('presentation') ||
         cleanText.toLowerCase().includes('# assignment') ||
         cleanText.toLowerCase().includes('# presentation') ||
+        cleanText.toLowerCase().includes('pitch deck') ||
+        cleanText.toLowerCase().includes('infographic') ||
+        cleanText.toLowerCase().includes('architecture diagram') ||
+        cleanText.toLowerCase().includes('visual graphic') ||
         message.toLowerCase().includes('cv') ||
         message.toLowerCase().includes('resume') ||
         message.toLowerCase().includes('flashcard') ||
         message.toLowerCase().includes('receipt') ||
         message.toLowerCase().includes('invoice') ||
         message.toLowerCase().includes('slide') ||
+        message.toLowerCase().includes('pitch deck') ||
+        message.toLowerCase().includes('graphics') ||
+        message.toLowerCase().includes('graphic') ||
         message.toLowerCase().includes('presentation');
 
       let sources: string[] = [];
@@ -492,7 +969,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return {
         text: cleanText,
         sources,
-        actionLabel: isDocument ? 'Download Generated Document' : undefined,
+        actionLabel: !clarificationQuestions && isDocument ? 'Download Generated Document' : undefined,
         provider: providerName,
         questions: clarificationQuestions,
         form: interactiveForm,

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Flashcards Template</title>
+<style>
+  :root{
+    --bg:#f6f5f2; --card:#ffffff; --ink:#222; --sub:#6b6b6b;
+    --accent:#1F4E5F; --accent2:#c98a2c; --border:#e2e0da;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#17191b; --card:#232527; --ink:#f0efec; --sub:#a3a3a3;
+      --accent:#7fb7cf; --accent2:#e0ac54; --border:#33363a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#17191b; --card:#232527; --ink:#f0efec; --sub:#a3a3a3;
+    --accent:#7fb7cf; --accent2:#e0ac54; --border:#33363a;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-padding-top:env(safe-area-inset-top,0px);}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+    background:var(--bg); color:var(--ink); min-height:100%;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+    display:flex; flex-direction:column; align-items:center; padding-left:16px; padding-right:16px;
+  }
+  h1{font-size:1.3rem; margin:20px 0 4px; text-align:center;}
+  .sub{color:var(--sub); font-size:.85rem; margin-bottom:18px; text-align:center;}
+  .toolbar{display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin-bottom:14px;}
+  button{
+    font:inherit; cursor:pointer; border:1px solid var(--border); background:var(--card);
+    color:var(--ink); padding:8px 14px; border-radius:8px; font-size:.85rem;
+  }
+  button.primary{background:var(--accent); color:#fff; border-color:var(--accent);}
+  .scene{width:100%; max-width:480px; perspective:1200px; margin-bottom:14px;}
+  .card{
+    position:relative; width:100%; height:280px; cursor:pointer;
+    transform-style:preserve-3d; transition:transform .5s; border-radius:16px;
+  }
+  .card.flipped{transform:rotateY(180deg);}
+  .face{
+    position:absolute; inset:0; backface-visibility:hidden; border-radius:16px;
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    padding:28px; font-size:1.25rem; line-height:1.4; border:1px solid var(--border);
+    background:var(--card); box-shadow:0 2px 10px rgba(0,0,0,.08);
+  }
+  .face.back{transform:rotateY(180deg); color:var(--accent);}
+  .tag{position:absolute; top:12px; left:16px; font-size:.7rem; color:var(--sub); text-transform:uppercase; letter-spacing:.05em;}
+  .nav{display:flex; align-items:center; gap:16px; margin-bottom:20px;}
+  .progress{font-size:.85rem; color:var(--sub); min-width:70px; text-align:center;}
+  textarea{
+    width:100%; max-width:480px; height:160px; font:inherit; font-size:.85rem;
+    padding:10px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--ink);
+    resize:vertical; margin-bottom:10px;
+  }
+  .editor{width:100%; max-width:480px; margin-bottom:24px; display:none;}
+  .editor.open{display:block;}
+  .hint{font-size:.75rem; color:var(--sub); margin-bottom:8px;}
+  @media print{
+    .toolbar,.nav,.editor,.sub{display:none !important;}
+    body{background:#fff;}
+    .print-grid{display:grid !important; grid-template-columns:1fr 1fr; gap:10px; width:100%;}
+    .print-card{border:1px dashed #999; border-radius:8px; padding:16px; min-height:120px;
+      display:flex; align-items:center; justify-content:center; text-align:center; font-size:1rem; page-break-inside:avoid;}
+    .scene,.print-hide{display:none !important;}
+  }
+  .print-grid{display:none;}
+</style>
+</head>
+<body>
+  <h1>📚 Flashcards</h1>
+  <div class="sub">Tap a card to flip it. Edit the deck below to make it your own.</div>
+
+  <div class="toolbar print-hide">
+    <button class="primary" id="flipBtn">Flip</button>
+    <button id="shuffleBtn">Shuffle</button>
+    <button id="editBtn">Edit deck</button>
+    <button id="printBtn">Print deck</button>
+  </div>
+
+  <div class="scene print-hide">
+    <div class="card" id="card">
+      <div class="face front"><span class="tag">Question</span><span id="frontText"></span></div>
+      <div class="face back"><span class="tag">Answer</span><span id="backText"></span></div>
+    </div>
+  </div>
+
+  <div class="nav print-hide">
+    <button id="prevBtn">◀ Prev</button>
+    <div class="progress" id="progress">1 / 1</div>
+    <button id="nextBtn">Next ▶</button>
+  </div>
+
+  <div class="editor print-hide" id="editor">
+    <div class="hint">One card per line, front and back separated by " | " — e.g.<br><em>Capital of France | Paris</em></div>
+    <textarea id="deckInput"></textarea>
+    <button class="primary" id="saveBtn">Save deck</button>
+  </div>
+
+  <div class="print-grid" id="printGrid"></div>
+
+<script>
+  const DEFAULT_DECK = [
+    ["What is the capital of France?", "Paris"],
+    ["H2O is the chemical formula for what?", "Water"],
+    ["What is 7 × 8?", "56"],
+    ["Who wrote 'Romeo and Juliet'?", "William Shakespeare"],
+    ["What planet is known as the Red Planet?", "Mars"],
+  ];
+
+  let deck = [];
+  let idx = 0;
+  let flipped = false;
+
+  const cardEl = document.getElementById("card");
+  const frontText = document.getElementById("frontText");
+  const backText = document.getElementById("backText");
+  const progress = document.getElementById("progress");
+  const editor = document.getElementById("editor");
+  const deckInput = document.getElementById("deckInput");
+  const printGrid = document.getElementById("printGrid");
+
+  function loadDeck(){
+    try {
+      const saved = localStorage.getItem("flashcards_deck_v1");
+      deck = saved ? JSON.parse(saved) : DEFAULT_DECK.slice();
+      if(!Array.isArray(deck) || deck.length === 0) deck = DEFAULT_DECK.slice();
+    } catch(e){ deck = DEFAULT_DECK.slice(); }
+  }
+
+  function saveDeck(){
+    try { localStorage.setItem("flashcards_deck_v1", JSON.stringify(deck)); } catch(e){}
+  }
+
+  function render(){
+    if(idx >= deck.length) idx = 0;
+    if(idx < 0) idx = deck.length - 1;
+    frontText.textContent = deck[idx][0];
+    backText.textContent = deck[idx][1];
+    flipped = false;
+    cardEl.classList.remove("flipped");
+    progress.textContent = (idx + 1) + " / " + deck.length;
+    renderPrintGrid();
+  }
+
+  function renderPrintGrid(){
+    printGrid.innerHTML = "";
+    deck.forEach(([f, b]) => {
+      const front = document.createElement("div");
+      front.className = "print-card";
+      front.textContent = f;
+      const back = document.createElement("div");
+      back.className = "print-card";
+      back.textContent = b;
+      printGrid.appendChild(front);
+      printGrid.appendChild(back);
+    });
+  }
+
+  cardEl.addEventListener("click", () => {
+    flipped = !flipped;
+    cardEl.classList.toggle("flipped", flipped);
+  });
+  document.getElementById("flipBtn").addEventListener("click", () => cardEl.click());
+  document.getElementById("nextBtn").addEventListener("click", () => { idx++; render(); });
+  document.getElementById("prevBtn").addEventListener("click", () => { idx--; render(); });
+  document.getElementById("shuffleBtn").addEventListener("click", () => {
+    for(let i = deck.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [deck[i], deck[j]] = [deck[j], deck[i]];
+    }
+    idx = 0; render();
+  });
+  document.getElementById("printBtn").addEventListener("click", () => window.print());
+
+  document.getElementById("editBtn").addEventListener("click", () => {
+    editor.classList.toggle("open");
+    if(editor.classList.contains("open")){
+      deckInput.value = deck.map(c => c[0] + " | " + c[1]).join("\n");
+    }
+  });
+
+  document.getElementById("saveBtn").addEventListener("click", () => {
+    const lines = deckInput.value.split("\n").map(l => l.trim()).filter(Boolean);
+    const parsed = lines.map(l => {
+      const parts = l.split("|");
+      return [ (parts[0] || "").trim(), (parts.slice(1).join("|") || "").trim() ];
+    }).filter(c => c[0] && c[1]);
+    if(parsed.length){
+      deck = parsed;
+      saveDeck();
+      idx = 0;
+      render();
+      editor.classList.remove("open");
+    }
+  });
+
+  loadDeck();
+  render();
+</script>
+</body>
+</html>

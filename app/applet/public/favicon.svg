@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <defs>
+    <filter id="cardShadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.15" />
+    </filter>
+  </defs>
+  <!-- Back Card: Deep Navy -->
+  <rect x="14" y="16" width="30" height="22" rx="4.5" fill="#0E1E36" stroke="#FFFFFF" stroke-width="1.75"/>
+  <!-- Middle Card: Signal Blue -->
+  <rect x="9" y="10" width="30" height="22" rx="4.5" fill="#3A6EFF" stroke="#FFFFFF" stroke-width="1.75"/>
+  <!-- Front Card: Emerald Vault Green with subtle shadow -->
+  <rect x="4" y="4" width="30" height="22" rx="4.5" fill="#10C77A" stroke="#FFFFFF" stroke-width="1.75" filter="url(#cardShadow)"/>
+</svg>

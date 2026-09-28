@@ -35,6 +35,8 @@ import {
   KeyRound,
   CheckSquare,
   Edit2,
+  Edit3,
+  CornerDownLeft,
   Copy,
   Printer,
   ExternalLink,
@@ -310,6 +312,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
   // Pop-up Clarification Question Modal State
   const [activeQuestionPopupMsgId, setActiveQuestionPopupMsgId] = useState<string | null>(null);
+  const [focusedOptionIndex, setFocusedOptionIndex] = useState(0);
 
   // Claude-Style Interactive Intake Form State
   const [formInputs, setFormInputs] = useState<Record<string, Record<string, string>>>({});
@@ -750,11 +753,13 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       {
         currentQuestionIndex: number;
         selectedOptions: Record<string, string[]>; // questionId -> optionIds
+        customAnswers?: Record<string, string>; // questionId -> custom user text input
         isSubmitted?: boolean;
         isDismissed?: boolean;
       }
     >
   >({});
+  const [customQuestionInput, setCustomQuestionInput] = useState('');
 
   const handleSelectQuestionOption = (
     msgId: string,
@@ -883,6 +888,304 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       },
     }));
   };
+
+  const handleSelectOptionDirectly = (optIdx: number) => {
+    const targetMsgId =
+      activeQuestionPopupMsgId ||
+      [...messages].reverse().find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.questions &&
+          m.questions.length > 0 &&
+          !questionnaireState[m.id]?.isSubmitted &&
+          !questionnaireState[m.id]?.isDismissed
+      )?.id;
+
+    if (!targetMsgId) return;
+    const targetMsg = messages.find((m) => m.id === targetMsgId);
+    if (!targetMsg || !targetMsg.questions || targetMsg.questions.length === 0) return;
+
+    const qState = questionnaireState[targetMsgId] || {
+      currentQuestionIndex: 0,
+      selectedOptions: {},
+      customAnswers: {},
+    };
+    const currentIdx = Math.min(qState.currentQuestionIndex, targetMsg.questions.length - 1);
+    const currentQ = targetMsg.questions[currentIdx];
+    const chosenOpt = currentQ.options[optIdx] || currentQ.options[0];
+    if (!chosenOpt) return;
+
+    const updatedSelected = {
+      ...qState.selectedOptions,
+      [currentQ.id]: [chosenOpt.id],
+    };
+    const updatedCustomAnswers = { ...(qState.customAnswers || {}) };
+    delete updatedCustomAnswers[currentQ.id];
+
+    const nextIdx = currentIdx + 1;
+    if (nextIdx < targetMsg.questions.length) {
+      setQuestionnaireState((prev) => ({
+        ...prev,
+        [targetMsgId]: {
+          ...qState,
+          currentQuestionIndex: nextIdx,
+          selectedOptions: updatedSelected,
+          customAnswers: updatedCustomAnswers,
+        },
+      }));
+      const nextQ = targetMsg.questions[nextIdx];
+      setCustomQuestionInput(updatedCustomAnswers[nextQ.id] || '');
+      setFocusedOptionIndex(0);
+    } else {
+      setActiveQuestionPopupMsgId(null);
+      setQuestionnaireState((prev) => ({
+        ...prev,
+        [targetMsgId]: {
+          ...qState,
+          currentQuestionIndex: nextIdx,
+          selectedOptions: updatedSelected,
+          customAnswers: updatedCustomAnswers,
+          isSubmitted: true,
+        },
+      }));
+      setCustomQuestionInput('');
+
+      // Compile clean human-readable specification summary
+      const specSummaries = targetMsg.questions.map((q) => {
+        const customAns = updatedCustomAnswers[q.id];
+        if (customAns) {
+          return `"${q.title}": "${customAns}"`;
+        }
+        const selId = updatedSelected[q.id]?.[0];
+        const opt = q.options.find((o) => o.id === selId);
+        return `"${q.title}": "${opt?.label || selId || 'Standard'}"`;
+      });
+
+      // Submit preference choices into chat to trigger immediate tailored synthesis
+      handleSendMessage(
+        `[PREFERENCE_SELECTED] Selected specifications: ${specSummaries.join(', ')}. Please generate the complete customized deliverable now.`
+      );
+    }
+  };
+
+  const handleSubmitCustomQuestionInput = () => {
+    const targetMsgId =
+      activeQuestionPopupMsgId ||
+      [...messages].reverse().find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.questions &&
+          m.questions.length > 0 &&
+          !questionnaireState[m.id]?.isSubmitted &&
+          !questionnaireState[m.id]?.isDismissed
+      )?.id;
+
+    if (!targetMsgId) return;
+    const targetMsg = messages.find((m) => m.id === targetMsgId);
+    if (!targetMsg || !targetMsg.questions || targetMsg.questions.length === 0) return;
+
+    const qState = questionnaireState[targetMsgId] || {
+      currentQuestionIndex: 0,
+      selectedOptions: {},
+      customAnswers: {},
+    };
+    const currentIdx = Math.min(qState.currentQuestionIndex, targetMsg.questions.length - 1);
+    const currentQ = targetMsg.questions[currentIdx];
+
+    const textValue = customQuestionInput.trim();
+    if (!textValue) {
+      onShowToast?.('Please enter your response or choose an option above.');
+      return;
+    }
+
+    const updatedCustomAnswers = {
+      ...(qState.customAnswers || {}),
+      [currentQ.id]: textValue,
+    };
+    const updatedSelected = { ...qState.selectedOptions };
+    delete updatedSelected[currentQ.id];
+
+    const nextIdx = currentIdx + 1;
+    if (nextIdx < targetMsg.questions.length) {
+      setQuestionnaireState((prev) => ({
+        ...prev,
+        [targetMsgId]: {
+          ...qState,
+          currentQuestionIndex: nextIdx,
+          selectedOptions: updatedSelected,
+          customAnswers: updatedCustomAnswers,
+        },
+      }));
+      const nextQ = targetMsg.questions[nextIdx];
+      setCustomQuestionInput(updatedCustomAnswers[nextQ.id] || '');
+      setFocusedOptionIndex(0);
+    } else {
+      setActiveQuestionPopupMsgId(null);
+      setQuestionnaireState((prev) => ({
+        ...prev,
+        [targetMsgId]: {
+          ...qState,
+          currentQuestionIndex: nextIdx,
+          selectedOptions: updatedSelected,
+          customAnswers: updatedCustomAnswers,
+          isSubmitted: true,
+        },
+      }));
+      setCustomQuestionInput('');
+
+      const specSummaries = targetMsg.questions.map((q) => {
+        const customAns = updatedCustomAnswers[q.id];
+        if (customAns) {
+          return `"${q.title}": "${customAns}"`;
+        }
+        const selId = updatedSelected[q.id]?.[0];
+        const opt = q.options.find((o) => o.id === selId);
+        return `"${q.title}": "${opt?.label || selId || 'Standard'}"`;
+      });
+
+      handleSendMessage(
+        `[PREFERENCE_SELECTED] Selected specifications: ${specSummaries.join(', ')}. Please generate the complete customized deliverable now.`
+      );
+    }
+  };
+
+  const handlePrevQuestionDirectly = () => {
+    const targetMsgId =
+      activeQuestionPopupMsgId ||
+      [...messages].reverse().find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.questions &&
+          m.questions.length > 0 &&
+          !questionnaireState[m.id]?.isSubmitted &&
+          !questionnaireState[m.id]?.isDismissed
+      )?.id;
+
+    if (!targetMsgId) return;
+    const qState = questionnaireState[targetMsgId];
+    if (!qState || qState.currentQuestionIndex <= 0) return;
+    const prevIdx = qState.currentQuestionIndex - 1;
+    setQuestionnaireState((prev) => ({
+      ...prev,
+      [targetMsgId]: {
+        ...qState,
+        currentQuestionIndex: prevIdx,
+      },
+    }));
+    const targetMsg = messages.find((m) => m.id === targetMsgId);
+    const prevQ = targetMsg?.questions?.[prevIdx];
+    if (prevQ) {
+      setCustomQuestionInput(qState.customAnswers?.[prevQ.id] || '');
+    }
+    setFocusedOptionIndex(0);
+  };
+
+  const handleSkipQuestionDirectly = () => {
+    const targetMsgId =
+      activeQuestionPopupMsgId ||
+      [...messages].reverse().find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.questions &&
+          m.questions.length > 0 &&
+          !questionnaireState[m.id]?.isSubmitted &&
+          !questionnaireState[m.id]?.isDismissed
+      )?.id;
+
+    if (targetMsgId) {
+      setQuestionnaireState((prev) => ({
+        ...prev,
+        [targetMsgId]: {
+          ...(prev[targetMsgId] || { currentQuestionIndex: 0, selectedOptions: {} }),
+          isSubmitted: true,
+        },
+      }));
+    }
+    setActiveQuestionPopupMsgId(null);
+    setCustomQuestionInput('');
+    handleSendMessage('Please proceed and generate with standard comprehensive specifications.');
+  };
+
+  // Keyboard navigation for Claude-style docked question pop-up card
+  useEffect(() => {
+    const targetMsgId =
+      activeQuestionPopupMsgId ||
+      [...messages].reverse().find(
+        (m) =>
+          m.role === 'assistant' &&
+          m.questions &&
+          m.questions.length > 0 &&
+          !questionnaireState[m.id]?.isSubmitted &&
+          !questionnaireState[m.id]?.isDismissed
+      )?.id;
+
+    if (!targetMsgId) return;
+    const targetMsg = messages.find((m) => m.id === targetMsgId);
+    if (!targetMsg || !targetMsg.questions || targetMsg.questions.length === 0) return;
+
+    const qState = questionnaireState[targetMsgId] || { currentQuestionIndex: 0, selectedOptions: {} };
+    const currentIdx = Math.min(qState.currentQuestionIndex, targetMsg.questions.length - 1);
+    const currentQ = targetMsg.questions[currentIdx];
+    const totalOptions = currentQ.options.length;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+      const isCustomInputFocused = activeEl?.getAttribute('data-question-input') === 'true';
+      if (isCustomInputFocused) {
+        // Let the custom text input handle typing and Enter
+        return;
+      }
+
+      const isTextareaFocused = activeEl === textareaRef.current;
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setActiveQuestionPopupMsgId(null);
+        setQuestionnaireState((prev) => ({
+          ...prev,
+          [targetMsgId]: {
+            ...(prev[targetMsgId] || { currentQuestionIndex: 0, selectedOptions: {} }),
+            isDismissed: true,
+          },
+        }));
+        return;
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedOptionIndex((prev) => (prev + 1) % totalOptions);
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedOptionIndex((prev) => (prev - 1 + totalOptions) % totalOptions);
+        return;
+      }
+
+      // Numbers 1-9 select option directly when textarea is empty or not typing
+      if (['1', '2', '3', '4', '5'].includes(e.key) && (!isTextareaFocused || inputText === '')) {
+        const idx = parseInt(e.key, 10) - 1;
+        if (idx >= 0 && idx < totalOptions) {
+          e.preventDefault();
+          handleSelectOptionDirectly(idx);
+          return;
+        }
+      }
+
+      if (e.key === 'Enter' && !e.shiftKey) {
+        if (isTextareaFocused && inputText.trim().length > 0) {
+          return; // Let standard textarea submit handle it
+        }
+        e.preventDefault();
+        handleSelectOptionDirectly(focusedOptionIndex);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeQuestionPopupMsgId, focusedOptionIndex, questionnaireState, messages, inputText]);
 
   const scrollToBottom = () => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1174,7 +1477,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         ? 'cover_letter'
         : 'document';
 
-      if (isDeliverable && !aiResult.answer.startsWith('⚠️')) {
+      if (isDeliverable && !aiResult.answer.startsWith('⚠️') && !aiResult.questions?.length) {
         aiMsg.actionLabel = isFlashcards
           ? 'Open Flashcard Deck in Canvas'
           : isSlides
@@ -1186,7 +1489,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           : 'Open Deliverable in Canvas';
       }
 
-      if (shouldOpenCanvas && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
+      if (!aiResult.questions?.length && shouldOpenCanvas && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
         openCanvas(aiResult.answer, docTitle, docType);
       }
 
@@ -2250,9 +2553,9 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
               {/* Floating Center Input Box */}
               <div className="w-full rounded-2xl bg-white border border-[#E0DFD7] shadow-[0_4px_24px_rgba(0,0,0,0.06)] p-3.5 sm:p-4 focus-within:border-[#18181B]/40 focus-within:shadow-[0_6px_28px_rgba(0,0,0,0.09)] transition-all relative">
                 
-                {/* Tagged Documents Chips Bar */}
+                {/* Tagged Documents Chips Bar - Hidden on mobile for space */}
                 {selectedCredentialIds.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5 mb-2.5 pb-2 border-b border-[#F0EFEB]">
+                  <div className="hidden sm:flex flex-wrap items-center gap-1.5 mb-2.5 pb-2 border-b border-[#F0EFEB]">
                     <span className="text-[11px] font-medium text-[#71717A] flex items-center gap-1">
                       <FileText className="w-3 h-3 text-[#10C77A]" />
                       Tagged Documents:
@@ -2404,21 +2707,21 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                   
                   {/* Left Controls: + Upload, @ Tag, Mode Toggle (Chat / Agent) */}
                   <div className="flex items-center gap-2">
-                    {/* + Attachment Button (Upload Credential Trigger) */}
+                    {/* + Attachment Button (Upload Credential Trigger) - Hidden on mobile for space */}
                     <button
                       type="button"
                       onClick={() => setIsUploadModalOpen(true)}
-                      className="w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] flex items-center justify-center transition-colors cursor-pointer"
+                      className="hidden sm:flex w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] items-center justify-center transition-colors cursor-pointer"
                       title="Upload or attach credential"
                     >
                       <Plus className="w-4 h-4 stroke-[2.5]" />
                     </button>
 
-                    {/* @ Tag Document Button */}
+                    {/* @ Tag Document Button - Hidden on mobile */}
                     <button
                       type="button"
                       onClick={() => setIsAtMentionOpen(!isAtMentionOpen)}
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                      className={`hidden sm:flex w-7 h-7 rounded-lg items-center justify-center transition-colors cursor-pointer ${
                         isAtMentionOpen
                           ? 'bg-[#10C77A]/15 text-[#0E8A54]'
                           : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
@@ -2476,8 +2779,8 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                   {/* Right Controls: Referenced Credentials Dropdown, Mic, Audio, Send */}
                   <div className="flex items-center gap-2">
                     
-                    {/* Referenced Credentials Dropdown Selector */}
-                    <div className="relative">
+                    {/* Referenced Credentials Dropdown Selector - Hidden on mobile to give more space */}
+                    <div className="relative hidden sm:block">
                       <button
                         type="button"
                         onClick={() => setShowCredDropdown(!showCredDropdown)}
@@ -2831,6 +3134,15 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                           __html: marked.parse(msg.text, { async: false, breaks: true }) as string,
                         }}
                       />
+                    ) : msg.text.startsWith('[PREFERENCE_SELECTED]') ? (
+                      <div className="flex items-center gap-2.5 text-[13px] sm:text-[13.5px]">
+                        <span className="w-2 h-2 rounded-full bg-[#10C77A] shrink-0 animate-pulse" />
+                        <span className="text-white/95 font-medium leading-snug">
+                          {msg.text
+                            .replace(/^\[PREFERENCE_SELECTED\]\s*Selected specifications:\s*/i, '')
+                            .replace(/\.\s*Please generate the complete customized deliverable now\.$/i, '')}
+                        </span>
+                      </div>
                     ) : (
                       <div className="whitespace-pre-line space-y-2 font-sans leading-relaxed">
                         {msg.text}
@@ -2972,68 +3284,42 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       </div>
                     )}
 
-                    {/* Structured Question Tool: Tappable Button Options Inline in Chat */}
+                    {/* Clarification prompt badge in chat feed (Full interactive questionnaire is exclusively on top of main text input) */}
                     {msg.role === 'assistant' &&
                       !msg.form &&
                       msg.questions &&
-                      msg.questions.length > 0 && (
-                        <div className="mt-3.5 space-y-3 max-w-[640px]">
-                          {msg.questions.map((q) => {
-                            const selectedOptionId = questionnaireState[msg.id]?.selectedOptions?.[q.id]?.[0];
-
-                            return (
-                              <div
-                                key={q.id}
-                                className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#E2E1DA] hover:border-[#10C77A]/60 shadow-2xs transition-all text-[#18181B]"
+                      msg.questions.length > 0 &&
+                      !questionnaireState[msg.id]?.isSubmitted && (
+                        <div className="mt-3 flex items-center gap-2">
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FAF9F5] border border-[#E2E1DA] text-[12px] text-[#71717A] shadow-2xs">
+                            <Sparkles className="w-3.5 h-3.5 text-[#10C77A]" />
+                            <span>Clarification questions active above chat input ↓</span>
+                            {questionnaireState[msg.id]?.isDismissed && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setQuestionnaireState((prev) => ({
+                                    ...prev,
+                                    [msg.id]: {
+                                      ...(prev[msg.id] || { currentQuestionIndex: 0, selectedOptions: {} }),
+                                      isDismissed: false,
+                                    },
+                                  }));
+                                  setActiveQuestionPopupMsgId(msg.id);
+                                }}
+                                className="ml-1.5 font-semibold text-[#0E8A54] hover:underline cursor-pointer"
                               >
-                                <div className="text-[13px] font-semibold text-[#18181B] mb-2.5 flex items-center gap-1.5">
-                                  <Sparkles className="w-3.5 h-3.5 text-[#10C77A]" />
-                                  <span>{q.title}</span>
-                                </div>
-
-                                <div className="flex flex-wrap gap-2">
-                                  {q.options.map((opt) => {
-                                    const isChosen = selectedOptionId === opt.id;
-                                    return (
-                                      <button
-                                        key={opt.id}
-                                        type="button"
-                                        disabled={isTyping}
-                                        onClick={() => {
-                                          // Record selection
-                                          setQuestionnaireState((prev) => ({
-                                            ...prev,
-                                            [msg.id]: {
-                                              currentQuestionIndex: 0,
-                                              selectedOptions: { [q.id]: [opt.id] },
-                                              isSubmitted: true,
-                                            },
-                                          }));
-                                          // Execute next turn immediately
-                                          handleSendMessage(
-                                            `[PREFERENCE_SELECTED] For "${q.title}", I choose: "${opt.label}". Please generate the customized output now.`
-                                          );
-                                        }}
-                                        className={`px-3.5 py-2 rounded-xl text-[12.5px] font-medium transition-all cursor-pointer border inline-flex items-center gap-1.5 active:scale-95 ${
-                                          isChosen
-                                            ? 'bg-[#10C77A] text-[#18181B] border-[#10C77A] font-semibold shadow-xs'
-                                            : 'bg-[#FAF9F5] hover:bg-[#18181B] hover:text-white hover:border-[#18181B] border-[#E2E1DA] text-[#18181B] shadow-2xs'
-                                        }`}
-                                      >
-                                        <span>{opt.label}</span>
-                                        <ArrowRight className="w-3.5 h-3.5 opacity-60" />
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            );
-                          })}
+                                Re-open
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )}
 
-                    {/* AI Document Artifact Callout (Only for structured deliverable documents produced in Agent Mode) */}
-                    {msg.role === 'assistant' && (msg.actionLabel || (msg.text.startsWith('# ') && msg.text.length > 200)) && (
+                    {/* AI Document Artifact Callout (Only rendered after all clarification questions have been answered and output is generated) */}
+                    {msg.role === 'assistant' &&
+                      (msg.actionLabel || (msg.text.startsWith('# ') && msg.text.length > 200)) &&
+                      (!msg.questions || msg.questions.length === 0 || questionnaireState[msg.id]?.isSubmitted) && (
                       <div className="mt-3.5 space-y-2.5">
                         <div className="p-3.5 rounded-2xl bg-white border border-[#E2E1DA] hover:border-[#10C77A] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -3286,270 +3572,516 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
         {/* Pinned Bottom Input Bar */}
         {currentView === 'chat' && activeThreadId && messages.length > 0 && (
-          <div className="p-4 sm:p-5 bg-gradient-to-t from-[#FAF9F5] via-[#FAF9F5] to-transparent shrink-0">
-            <div className="max-w-[740px] mx-auto rounded-2xl bg-white border border-[#E0DFD7] shadow-lg p-2.5 sm:p-3 focus-within:border-[#18181B]/40 transition-all relative">
-              
-              {/* Tagged Documents Chips Bar */}
-              {selectedCredentialIds.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 mb-2 pb-1.5 border-b border-[#F0EFEB]">
-                  <span className="text-[11px] font-medium text-[#71717A] flex items-center gap-1">
-                    <FileText className="w-3 h-3 text-[#10C77A]" />
-                    Tagged:
-                  </span>
-                  {selectedCredentialIds.map((id) => {
-                    const cred = credentials.find((c) => c.id === id);
-                    if (!cred) return null;
-                    return (
-                      <span
-                        key={id}
-                        className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#FAF9F5] border border-[#E2E1DA] text-[11.5px] text-[#18181B] font-medium shadow-2xs hover:border-[#10C77A] transition-colors"
-                      >
-                        <span className="text-[#0E8A54] font-semibold">@{cred.name.length > 22 ? cred.name.slice(0, 22) + '...' : cred.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTag(id)}
-                          className="p-0.5 rounded-full hover:bg-[#E5E4DE] text-[#71717A] hover:text-[#18181B] cursor-pointer"
-                          title="Remove document tag"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={() => setIsAtMentionOpen(true)}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
-                    title="Tag another document"
+          <div className="sticky bottom-0 z-30 w-full p-2 sm:p-5 bg-gradient-to-t from-[#FAF9F5] via-[#FAF9F5]/95 to-transparent shrink-0">
+            <div className="max-w-[740px] mx-auto relative">
+
+              {/* Floating Claude-Style Question Clarification Card (Themed in Website Emerald Palette) */}
+              {(() => {
+                const targetMsgId =
+                  activeQuestionPopupMsgId ||
+                  [...messages].reverse().find(
+                    (m) =>
+                      m.role === 'assistant' &&
+                      m.questions &&
+                      m.questions.length > 0 &&
+                      !questionnaireState[m.id]?.isSubmitted &&
+                      !questionnaireState[m.id]?.isDismissed
+                  )?.id;
+
+                if (!targetMsgId) return null;
+                const targetMsg = messages.find((m) => m.id === targetMsgId);
+                if (!targetMsg || !targetMsg.questions || targetMsg.questions.length === 0) return null;
+
+                const qState = questionnaireState[targetMsgId] || {
+                  currentQuestionIndex: 0,
+                  selectedOptions: {},
+                  customAnswers: {},
+                };
+                const currentIdx = Math.min(qState.currentQuestionIndex, targetMsg.questions.length - 1);
+                const currentQuestion = targetMsg.questions[currentIdx];
+                const totalQuestions = targetMsg.questions.length;
+
+                return (
+                  <div
+                    className="mb-2.5 w-full bg-white rounded-2xl border border-[#E2E1DA] shadow-[0_12px_36px_-6px_rgba(0,0,0,0.12)] p-3.5 sm:p-4 text-[#18181B] select-none transition-all duration-200 animate-toast"
+                    role="dialog"
+                    aria-label={currentQuestion.title}
                   >
-                    <AtSign className="w-3 h-3" />
-                    <span>Tag doc</span>
-                  </button>
-                </div>
-              )}
-
-              {/* @ Mention Popover Dropdown */}
-              {isAtMentionOpen && (
-                <div className="absolute left-3 bottom-full mb-2 w-72 sm:w-84 rounded-2xl bg-white border border-[#E0DFD7] shadow-xl p-2 z-50 animate-toast text-[12px]">
-                  <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#F0EFEB]">
-                    <div className="font-semibold text-[#18181B] flex items-center gap-1.5">
-                      <AtSign className="w-3.5 h-3.5 text-[#10C77A]" />
-                      <span>Tag a Document</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsAtMentionOpen(false)}
-                      className="p-1 rounded-md text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <div className="my-1.5 max-h-52 overflow-y-auto space-y-1 pr-1">
-                    {credentials.length === 0 ? (
-                      <div className="p-3 text-center text-[#71717A] text-[11.5px]">
-                        No documents in vault yet.
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsAtMentionOpen(false);
-                            setIsUploadModalOpen(true);
-                          }}
-                          className="mt-1 block mx-auto text-[#0E8A54] font-semibold hover:underline cursor-pointer"
-                        >
-                          + Upload Document
-                        </button>
+                    {/* Header: Progress, Title, Dismiss */}
+                    <div className="flex items-center justify-between pb-2 mb-1.5 border-b border-[#F0EFEB]">
+                      <div className="flex items-center gap-2">
+                        {currentIdx > 0 && (
+                          <button
+                            type="button"
+                            onClick={handlePrevQuestionDirectly}
+                            className="p-1 -ml-1 rounded-md hover:bg-[#F3F2EE] text-[#71717A] hover:text-[#18181B] transition-colors cursor-pointer"
+                            title="Previous question"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <span className="text-[10.5px] font-mono font-semibold px-2 py-0.5 rounded-full bg-[#10C77A]/12 text-[#0E8A54] border border-[#10C77A]/25">
+                          Step {currentIdx + 1} of {totalQuestions}
+                        </span>
+                        {totalQuestions > 1 && (
+                          <div className="flex items-center gap-1">
+                            {targetMsg.questions.map((_, i) => (
+                              <span
+                                key={i}
+                                className={`h-1.5 rounded-full transition-all ${
+                                  i === currentIdx
+                                    ? 'w-4 bg-[#10C77A]'
+                                    : i < currentIdx
+                                    ? 'w-2 bg-[#0E8A54]'
+                                    : 'w-2 bg-[#E2E1DA]'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      credentials
-                        .filter(
-                          (c) =>
-                            !atMentionQuery ||
-                            c.name.toLowerCase().includes(atMentionQuery) ||
-                            c.issuer.toLowerCase().includes(atMentionQuery) ||
-                            c.type.toLowerCase().includes(atMentionQuery)
-                        )
-                        .map((cred) => {
-                          const isTagged = selectedCredentialIds.includes(cred.id);
-                          return (
-                            <button
-                              key={cred.id}
-                              type="button"
-                              onClick={() => handleSelectAtMentionDoc(cred)}
-                              className={`w-full text-left p-2 rounded-xl transition-colors flex items-center justify-between gap-2 cursor-pointer ${
-                                isTagged ? 'bg-[#10C77A]/10 text-[#0E8A54]' : 'hover:bg-[#F4F3ED] text-[#18181B]'
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveQuestionPopupMsgId(null);
+                          setQuestionnaireState((prev) => ({
+                            ...prev,
+                            [targetMsgId]: {
+                              ...(prev[targetMsgId] || { currentQuestionIndex: 0, selectedOptions: {} }),
+                              isDismissed: true,
+                            },
+                          }));
+                        }}
+                        className="w-6 h-6 rounded-md hover:bg-[#F3F2EE] text-[#71717A] hover:text-[#18181B] flex items-center justify-center transition-colors cursor-pointer"
+                        title="Dismiss (Esc)"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Question Title */}
+                    <div className="mb-2.5">
+                      <h3 className="text-[14px] sm:text-[14.5px] font-semibold text-[#18181B] tracking-tight">
+                        {currentQuestion.title}
+                      </h3>
+                    </div>
+
+                    {/* Options List */}
+                    <div className="space-y-1">
+                      {currentQuestion.options.map((opt, idx) => {
+                        const isFocused = focusedOptionIndex === idx;
+                        const isChosen = qState.selectedOptions?.[currentQuestion.id]?.includes(opt.id);
+
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onMouseEnter={() => setFocusedOptionIndex(idx)}
+                            onClick={() => handleSelectOptionDirectly(idx)}
+                            className={`w-full px-3.5 py-2.5 rounded-xl text-left transition-all flex items-center gap-3 cursor-pointer group ${
+                              isChosen
+                                ? 'border-2 border-[#10C77A] bg-[#10C77A]/10 text-[#18181B] font-medium shadow-2xs'
+                                : isFocused
+                                ? 'border-2 border-[#10C77A] bg-[#10C77A]/6 shadow-2xs text-[#18181B]'
+                                : 'border border-[#F0EFEB] hover:bg-[#F8F7F2] text-[#27272A]'
+                            }`}
+                          >
+                            <span
+                              className={`w-5.5 h-5.5 rounded-md text-[11px] font-mono font-semibold flex items-center justify-center shrink-0 transition-colors ${
+                                isChosen || isFocused
+                                  ? 'bg-[#10C77A] text-[#18181B]'
+                                  : 'bg-[#F4F3ED] text-[#71717A] group-hover:text-[#18181B]'
                               }`}
                             >
-                              <div className="min-w-0 flex-1">
-                                <div className="font-semibold text-[12px] truncate flex items-center gap-1">
-                                  <FileText className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
-                                  <span className="truncate">{cred.name}</span>
-                                </div>
-                                <div className="text-[10.5px] text-[#71717A] truncate">
-                                  {cred.issuer} · {cred.type.toUpperCase()}
-                                </div>
-                              </div>
-                              {isTagged ? (
-                                <Check className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
-                              ) : (
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#FAF9F5] border border-[#E2E1DA] text-[#71717A] shrink-0">
-                                  Tag
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })
-                    )}
-                  </div>
+                              {idx + 1}
+                            </span>
+                            <span className="text-[13px] sm:text-[13.5px] font-medium flex-1">
+                              {opt.label}
+                            </span>
+                            <span className="text-[11px] font-mono text-[#0E8A54] flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <span>{currentIdx < totalQuestions - 1 ? 'Next' : 'Select'}</span>
+                              <CornerDownLeft className="w-3.5 h-3.5" />
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                  <div className="pt-1.5 border-t border-[#F0EFEB] px-2 flex items-center justify-between text-[11px] text-[#71717A]">
-                    <span>Click to tag in chat</span>
+                    {/* Custom Text Input Section */}
+                    <div className="mt-2.5 pt-2 border-t border-[#F0EFEB]">
+                      <div className="text-[11.5px] font-medium text-[#71717A] mb-1.5 flex items-center justify-between">
+                        <span>Or input your own custom response:</span>
+                        {currentIdx > 0 && (
+                          <button
+                            type="button"
+                            onClick={handlePrevQuestionDirectly}
+                            className="text-[#0E8A54] hover:underline flex items-center gap-1 text-[11px] font-semibold cursor-pointer"
+                          >
+                            <ArrowLeft className="w-3 h-3" />
+                            <span>Back to Step {currentIdx}</span>
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <input
+                            type="text"
+                            data-question-input="true"
+                            value={customQuestionInput}
+                            onChange={(e) => setCustomQuestionInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                handleSubmitCustomQuestionInput();
+                              }
+                            }}
+                            placeholder="Type your custom requirements or topic..."
+                            className="w-full text-[12.5px] px-3 py-2 rounded-xl bg-[#FAF9F5] border border-[#E2E1DA] focus:border-[#10C77A] focus:bg-white text-[#18181B] placeholder-[#A1A1AA] outline-none transition-all pr-8"
+                          />
+                          {customQuestionInput && (
+                            <button
+                              type="button"
+                              onClick={() => setCustomQuestionInput('')}
+                              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A1A1AA] hover:text-[#18181B] cursor-pointer"
+                              title="Clear"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={!customQuestionInput.trim()}
+                          onClick={handleSubmitCustomQuestionInput}
+                          className="h-8.5 px-3 rounded-xl bg-[#18181B] hover:bg-[#10C77A] hover:text-[#18181B] disabled:opacity-35 disabled:hover:bg-[#18181B] disabled:hover:text-white text-white text-[12px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs shrink-0 active:scale-95"
+                        >
+                          <span>{currentIdx < totalQuestions - 1 ? 'Next Step' : 'Confirm'}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Bottom Navigation & Skip Row */}
+                    <div className="pt-2 mt-2 border-t border-[#F0EFEB] flex items-center justify-between text-[11.5px] text-[#71717A]">
+                      <div className="flex items-center gap-2">
+                        {currentIdx > 0 ? (
+                          <button
+                            type="button"
+                            onClick={handlePrevQuestionDirectly}
+                            className="px-2.5 py-1 rounded-lg hover:bg-[#F3F2EE] text-[#71717A] hover:text-[#18181B] font-medium flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <ArrowLeft className="w-3 h-3" />
+                            <span>Back</span>
+                          </button>
+                        ) : (
+                          <span className="text-[11px] text-[#A1A1AA]">
+                            Press 1-{currentQuestion.options.length} or click
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSkipQuestionDirectly()}
+                        className="px-3 py-1 rounded-lg bg-[#FAF9F5] hover:bg-[#F3F2EE] border border-[#E2E1DA] text-[#71717A] hover:text-[#18181B] text-[11px] font-medium transition-all cursor-pointer shadow-2xs active:scale-95"
+                      >
+                        Skip & generate standard
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="rounded-2xl bg-white border border-[#E0DFD7] shadow-lg p-2.5 sm:p-3 focus-within:border-[#18181B]/40 transition-all relative">
+                
+                {/* Tagged Documents Chips Bar - Hidden on mobile for space */}
+                {selectedCredentialIds.length > 0 && (
+                  <div className="hidden sm:flex flex-wrap items-center gap-1.5 mb-2 pb-1.5 border-b border-[#F0EFEB]">
+                    <span className="text-[11px] font-medium text-[#71717A] flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-[#10C77A]" />
+                      Tagged:
+                    </span>
+                    {selectedCredentialIds.map((id) => {
+                      const cred = credentials.find((c) => c.id === id);
+                      if (!cred) return null;
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#FAF9F5] border border-[#E2E1DA] text-[11.5px] text-[#18181B] font-medium shadow-2xs hover:border-[#10C77A] transition-colors"
+                        >
+                          <span className="text-[#0E8A54] font-semibold">@{cred.name.length > 22 ? cred.name.slice(0, 22) + '...' : cred.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(id)}
+                            className="p-0.5 rounded-full hover:bg-[#E5E4DE] text-[#71717A] hover:text-[#18181B] cursor-pointer"
+                            title="Remove document tag"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setIsAtMentionOpen(true)}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
+                      title="Tag another document"
+                    >
+                      <AtSign className="w-3 h-3" />
+                      <span>Tag doc</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* @ Mention Popover Dropdown */}
+                {isAtMentionOpen && (
+                  <div className="absolute left-3 bottom-full mb-2 w-72 sm:w-84 rounded-2xl bg-white border border-[#E0DFD7] shadow-xl p-2 z-50 animate-toast text-[12px]">
+                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#F0EFEB]">
+                      <div className="font-semibold text-[#18181B] flex items-center gap-1.5">
+                        <AtSign className="w-3.5 h-3.5 text-[#10C77A]" />
+                        <span>Tag a Document</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAtMentionOpen(false)}
+                        className="p-1 rounded-md text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="my-1.5 max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {credentials.length === 0 ? (
+                        <div className="p-3 text-center text-[#71717A] text-[11.5px]">
+                          No documents in vault yet.
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAtMentionOpen(false);
+                              setIsUploadModalOpen(true);
+                            }}
+                            className="mt-1 block mx-auto text-[#0E8A54] font-semibold hover:underline cursor-pointer"
+                          >
+                            + Upload Document
+                          </button>
+                        </div>
+                      ) : (
+                        credentials
+                          .filter(
+                            (c) =>
+                              !atMentionQuery ||
+                              c.name.toLowerCase().includes(atMentionQuery) ||
+                              c.issuer.toLowerCase().includes(atMentionQuery) ||
+                              c.type.toLowerCase().includes(atMentionQuery)
+                          )
+                          .map((cred) => {
+                            const isTagged = selectedCredentialIds.includes(cred.id);
+                            return (
+                              <button
+                                key={cred.id}
+                                type="button"
+                                onClick={() => handleSelectAtMentionDoc(cred)}
+                                className={`w-full text-left p-2 rounded-xl transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                                  isTagged ? 'bg-[#10C77A]/10 text-[#0E8A54]' : 'hover:bg-[#F4F3ED] text-[#18181B]'
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-[12px] truncate flex items-center gap-1">
+                                    <FileText className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
+                                    <span className="truncate">{cred.name}</span>
+                                  </div>
+                                  <div className="text-[10.5px] text-[#71717A] truncate">
+                                    {cred.issuer} · {cred.type.toUpperCase()}
+                                  </div>
+                                </div>
+                                {isTagged ? (
+                                  <Check className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
+                                ) : (
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#FAF9F5] border border-[#E2E1DA] text-[#71717A] shrink-0">
+                                    Tag
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                      )}
+                    </div>
+
+                    <div className="pt-1.5 border-t border-[#F0EFEB] px-2 flex items-center justify-between text-[11px] text-[#71717A]">
+                      <span>Click to tag in chat</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAtMentionOpen(false);
+                          setIsUploadModalOpen(true);
+                        }}
+                        className="text-[#0E8A54] hover:underline font-semibold cursor-pointer"
+                      >
+                        + Upload New
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <textarea
+                  ref={textareaRef}
+                  rows={2}
+                  value={inputText}
+                  onChange={handleInputChange}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      if (activeQuestionPopupMsgId) {
+                        setActiveQuestionPopupMsgId(null);
+                      }
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder={
+                    activeQuestionPopupMsgId
+                      ? "+ Or reply directly..."
+                      : chatMode === 'agent'
+                      ? "Command your credentials (e.g. 'Help me create a CV' or 'Generate slides for this document')..."
+                      : "Ask a question, say hello, type @ to tag documents, or discuss..."
+                  }
+                  className="w-full bg-transparent text-[14px] sm:text-[15px] text-[#18181B] placeholder:text-[#9CA3AF] focus:outline-none resize-none px-2"
+                />
+
+                <div className="mt-2 pt-2 flex items-center justify-between border-t border-[#F0EFEB] text-[12px]">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsUploadModalOpen(true)}
+                      className="hidden sm:flex w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] items-center justify-center transition-colors cursor-pointer"
+                      title="Upload or attach credential"
+                    >
+                      <Plus className="w-4 h-4 stroke-[2.5]" />
+                    </button>
+
+                    {/* @ Tag Document Button - Hidden on mobile to maximize space */}
+                    <button
+                      type="button"
+                      onClick={() => setIsAtMentionOpen(!isAtMentionOpen)}
+                      className={`hidden sm:flex w-7 h-7 rounded-lg items-center justify-center transition-colors cursor-pointer ${
+                        isAtMentionOpen
+                          ? 'bg-[#10C77A]/15 text-[#0E8A54]'
+                          : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
+                      }`}
+                      title="Tag a document (@)"
+                    >
+                      <AtSign className="w-4 h-4" />
+                    </button>
+
+                    {/* Mode switcher in bottom bar */}
+                    <div className="flex items-center bg-[#F4F3ED] p-0.5 rounded-lg border border-[#E2E1DA]">
+                      <button
+                        type="button"
+                        onClick={() => setChatMode('chat')}
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                          chatMode === 'chat'
+                            ? 'bg-white text-[#18181B] shadow-2xs font-semibold'
+                            : 'text-[#71717A] hover:text-[#18181B]'
+                        }`}
+                      >
+                        Chat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setChatMode('agent')}
+                        className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
+                          chatMode === 'agent'
+                            ? 'bg-white text-[#18181B] shadow-2xs font-semibold'
+                            : 'text-[#71717A] hover:text-[#18181B]'
+                        }`}
+                      >
+                        Agent
+                      </button>
+                    </div>
+
+                    {/* Web Search (DuckDuckGo) in bottom bar */}
                     <button
                       type="button"
                       onClick={() => {
-                        setIsAtMentionOpen(false);
-                        setIsUploadModalOpen(true);
+                        setIsWebSearchActive(!isWebSearchActive);
+                        onShowToast?.(!isWebSearchActive ? '🌐 DuckDuckGo Web Search enabled.' : 'Web Search disabled.');
                       }}
-                      className="text-[#0E8A54] hover:underline font-semibold cursor-pointer"
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-medium transition-all inline-flex items-center gap-1 cursor-pointer border ${
+                        isWebSearchActive
+                          ? 'bg-[#3A6EFF]/15 text-[#3A6EFF] border-[#3A6EFF]/40 font-semibold shadow-2xs'
+                          : 'bg-transparent text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] border-transparent'
+                      }`}
+                      title="Toggle DuckDuckGo Web Search"
                     >
-                      + Upload New
+                      <Globe className="w-3 h-3" />
+                      <span className="hidden sm:inline">{isWebSearchActive ? 'Web ON' : 'Web'}</span>
                     </button>
+
+                    {/* Referenced Files Indicator */}
+                    <button
+                      type="button"
+                      onClick={() => setIsVaultDrawerOpen(true)}
+                      className="hidden sm:inline-flex items-center gap-1 text-[11px] text-[#71717A] hover:text-[#18181B] px-1.5 py-0.5 rounded hover:bg-[#F3F2EE] transition-colors cursor-pointer"
+                      title="View referenced documents"
+                    >
+                      <FileText className="w-3 h-3 text-[#10C77A]" />
+                      <span>
+                        {selectedCredentialIds.length === 0
+                          ? `${credentials.length} Files`
+                          : `${selectedCredentialIds.length} Selected`}
+                      </span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Microphone Icon (Speech-to-Text) */}
+                    <button
+                      type="button"
+                      onClick={toggleVoiceInput}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        isListening
+                          ? 'bg-[#EF4444] text-white shadow-xs animate-pulse ring-2 ring-[#EF4444]/40'
+                          : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
+                      }`}
+                      title={isListening ? 'Listening... Click to stop speech-to-text' : 'Click to use Speech-to-Text'}
+                    >
+                      {isListening ? <MicOff className="w-4 h-4 animate-bounce" /> : <Mic className="w-4 h-4" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSendMessage()}
+                      disabled={!inputText.trim()}
+                      className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                        inputText.trim()
+                          ? 'bg-[#10C77A] text-[#18181B] shadow-xs active:scale-95'
+                          : 'bg-[#E5E4DE] text-[#A1A1AA] cursor-not-allowed'
+                      }`}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Navigation Hints Bar below Input */}
+              {activeQuestionPopupMsgId && (
+                <div className="flex items-center justify-between px-2 pt-2 text-[11px] text-[#71717A] select-none">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono bg-[#FAF9F5] border border-[#E2E1DA] px-1.5 py-0.5 rounded text-[10px] text-[#52525B]">↑</span>
+                    <span className="font-mono bg-[#FAF9F5] border border-[#E2E1DA] px-1.5 py-0.5 rounded text-[10px] text-[#52525B]">↓</span>
+                    <span>to navigate</span>
+                    <span className="text-[#D4D4D8]">·</span>
+                    <span className="font-mono bg-[#FAF9F5] border border-[#E2E1DA] px-1.5 py-0.5 rounded text-[10px] text-[#52525B]">↵</span>
+                    <span>to select</span>
+                    <span className="text-[#D4D4D8]">·</span>
+                    <span>or type below</span>
+                  </div>
+                  <div className="text-[10.5px] font-mono text-[#A1A1AA]">
+                    Kred Sovereign Engine
                   </div>
                 </div>
               )}
-
-              <textarea
-                rows={2}
-                value={inputText}
-                onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                placeholder={
-                  chatMode === 'agent'
-                    ? "Command your credentials (e.g. 'Help me create a CV' or 'Generate slides for this document')..."
-                    : "Ask a question, say hello, type @ to tag documents, or discuss..."
-                }
-                className="w-full bg-transparent text-[14px] sm:text-[15px] text-[#18181B] placeholder:text-[#9CA3AF] focus:outline-none resize-none px-2"
-              />
-
-              <div className="mt-2 pt-2 flex items-center justify-between border-t border-[#F0EFEB] text-[12px]">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsUploadModalOpen(true)}
-                    className="w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] flex items-center justify-center transition-colors cursor-pointer"
-                    title="Upload or attach credential"
-                  >
-                    <Plus className="w-4 h-4 stroke-[2.5]" />
-                  </button>
-
-                  {/* @ Tag Document Button */}
-                  <button
-                    type="button"
-                    onClick={() => setIsAtMentionOpen(!isAtMentionOpen)}
-                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-                      isAtMentionOpen
-                        ? 'bg-[#10C77A]/15 text-[#0E8A54]'
-                        : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
-                    }`}
-                    title="Tag a document (@)"
-                  >
-                    <AtSign className="w-4 h-4" />
-                  </button>
-
-                  {/* Mode switcher in bottom bar */}
-                  <div className="flex items-center bg-[#F4F3ED] p-0.5 rounded-lg border border-[#E2E1DA]">
-                    <button
-                      type="button"
-                      onClick={() => setChatMode('chat')}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                        chatMode === 'chat'
-                          ? 'bg-white text-[#18181B] shadow-2xs font-semibold'
-                          : 'text-[#71717A] hover:text-[#18181B]'
-                      }`}
-                    >
-                      Chat
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChatMode('agent')}
-                      className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-all cursor-pointer ${
-                        chatMode === 'agent'
-                          ? 'bg-white text-[#18181B] shadow-2xs font-semibold'
-                          : 'text-[#71717A] hover:text-[#18181B]'
-                      }`}
-                    >
-                      Agent
-                    </button>
-                  </div>
-
-                  {/* Web Search (DuckDuckGo) in bottom bar */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsWebSearchActive(!isWebSearchActive);
-                      onShowToast?.(!isWebSearchActive ? '🌐 DuckDuckGo Web Search enabled.' : 'Web Search disabled.');
-                    }}
-                    className={`px-2 py-0.5 rounded-lg text-[11px] font-medium transition-all inline-flex items-center gap-1 cursor-pointer border ${
-                      isWebSearchActive
-                        ? 'bg-[#3A6EFF]/15 text-[#3A6EFF] border-[#3A6EFF]/40 font-semibold shadow-2xs'
-                        : 'bg-transparent text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] border-transparent'
-                    }`}
-                    title="Toggle DuckDuckGo Web Search"
-                  >
-                    <Globe className="w-3 h-3" />
-                    <span className="hidden sm:inline">{isWebSearchActive ? 'Web ON' : 'Web'}</span>
-                  </button>
-
-                  {/* Referenced Files Indicator */}
-                  <button
-                    type="button"
-                    onClick={() => setIsVaultDrawerOpen(true)}
-                    className="hidden sm:inline-flex items-center gap-1 text-[11px] text-[#71717A] hover:text-[#18181B] px-1.5 py-0.5 rounded hover:bg-[#F3F2EE] transition-colors cursor-pointer"
-                    title="View referenced documents"
-                  >
-                    <FileText className="w-3 h-3 text-[#10C77A]" />
-                    <span>
-                      {selectedCredentialIds.length === 0
-                        ? `${credentials.length} Files`
-                        : `${selectedCredentialIds.length} Selected`}
-                    </span>
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* Microphone Icon (Speech-to-Text) */}
-                  <button
-                    type="button"
-                    onClick={toggleVoiceInput}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      isListening
-                        ? 'bg-[#EF4444] text-white shadow-xs animate-pulse ring-2 ring-[#EF4444]/40'
-                        : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
-                    }`}
-                    title={isListening ? 'Listening... Click to stop speech-to-text' : 'Click to use Speech-to-Text'}
-                  >
-                    {isListening ? <MicOff className="w-4 h-4 animate-bounce" /> : <Mic className="w-4 h-4" />}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => handleSendMessage()}
-                    disabled={!inputText.trim()}
-                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                      inputText.trim()
-                        ? 'bg-[#10C77A] text-[#18181B] shadow-xs active:scale-95'
-                        : 'bg-[#E5E4DE] text-[#A1A1AA] cursor-not-allowed'
-                    }`}
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         )}
@@ -4187,149 +4719,6 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           </div>
         </div>
       )}
-
-      {/* ============================================================ */}
-      {/* INTERACTIVE CLARIFICATION QUESTION POP-UP MODAL */}
-      {/* ============================================================ */}
-      {activeQuestionPopupMsgId && (() => {
-        const targetMsg = messages.find((m) => m.id === activeQuestionPopupMsgId);
-        if (!targetMsg || !targetMsg.questions || targetMsg.questions.length === 0) return null;
-
-        const qState = questionnaireState[activeQuestionPopupMsgId] || {
-          currentQuestionIndex: 0,
-          selectedOptions: {},
-        };
-        const currentIdx = Math.min(qState.currentQuestionIndex, targetMsg.questions.length - 1);
-        const currentQuestion = targetMsg.questions[currentIdx];
-        const selectedForCurrent = qState.selectedOptions[currentQuestion.id] || [];
-        const selectedCount = selectedForCurrent.length;
-        const isLastQuestion = currentIdx === targetMsg.questions.length - 1;
-
-        return (
-          <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="bg-white rounded-3xl border border-[#E2E1DA] shadow-2xl max-w-lg w-full overflow-hidden text-[#18181B] animate-toast">
-              {/* Modal Header */}
-              <div className="px-6 pt-5 pb-4 border-b border-[#F0EFEB] flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-[#10C77A]/15 text-[#0E8A54] flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="text-[15px] font-bold text-[#18181B] tracking-tight">
-                      Customize Output Specification
-                    </h3>
-                    <p className="text-[11.5px] text-[#71717A]">
-                      Answer clarification questions to tailor your document
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full bg-[#FAF9F5] border border-[#E2E1DA] text-[11px] font-mono text-[#71717A] font-semibold">
-                    Question {currentIdx + 1} of {targetMsg.questions.length}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveQuestionPopupMsgId(null)}
-                    className="p-1.5 rounded-xl hover:bg-[#F3F2EE] text-[#71717A] hover:text-[#18181B] transition-colors cursor-pointer"
-                    title="Close pop-up"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Question Body */}
-              <div className="p-6">
-                <div className="mb-4">
-                  <h4 className="text-[15.5px] font-semibold text-[#18181B] leading-snug">
-                    {currentQuestion.title}
-                  </h4>
-                  <p className="text-[12px] text-[#71717A] mt-1">
-                    {currentQuestion.multiSelect
-                      ? 'Select all applicable options'
-                      : 'Select the option that best matches your objective'}
-                  </p>
-                </div>
-
-                {/* Options List */}
-                <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
-                  {currentQuestion.options.map((opt) => {
-                    const isSelected = selectedForCurrent.includes(opt.id);
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() =>
-                          handleSelectQuestionOption(
-                            activeQuestionPopupMsgId,
-                            currentQuestion.id,
-                            opt.id,
-                            currentQuestion.multiSelect
-                          )
-                        }
-                        className={`w-full p-3.5 rounded-2xl text-left text-[13.5px] font-medium transition-all flex items-center justify-between cursor-pointer border ${
-                          isSelected
-                            ? 'bg-[#10C77A]/10 border-[#10C77A] text-[#18181B] shadow-2xs'
-                            : 'bg-[#FAF9F5] border-[#E2E1DA] text-[#18181B] hover:bg-[#F3F2EE] hover:border-[#D4D3CC]'
-                        }`}
-                      >
-                        <span className="leading-snug">{opt.label}</span>
-                        <div
-                          className={`w-5 h-5 rounded-${
-                            currentQuestion.multiSelect ? 'lg' : 'full'
-                          } border flex items-center justify-center shrink-0 ml-3 transition-colors ${
-                            isSelected
-                              ? 'bg-[#10C77A] border-[#10C77A] text-[#18181B]'
-                              : 'border-[#D4D4D8] bg-white'
-                          }`}
-                        >
-                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Modal Footer */}
-              <div className="px-6 py-4 bg-[#FAF9F5] border-t border-[#F0EFEB] flex items-center justify-between text-[12.5px]">
-                <span className="text-[#71717A] font-medium">
-                  {selectedCount} selected
-                </span>
-
-                <div className="flex items-center gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleSkipQuestion(activeQuestionPopupMsgId, targetMsg.questions!);
-                      if (isLastQuestion) setActiveQuestionPopupMsgId(null);
-                    }}
-                    className="px-3 py-1.5 rounded-xl hover:bg-[#EAE8DF] text-[#71717A] hover:text-[#18181B] transition-colors cursor-pointer font-medium"
-                  >
-                    Skip
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleNextOrSubmitQuestion(activeQuestionPopupMsgId, targetMsg.questions!);
-                      if (isLastQuestion) {
-                        setActiveQuestionPopupMsgId(null);
-                      }
-                    }}
-                    className="h-9 px-4 rounded-xl bg-[#10C77A] hover:bg-[#0EBA71] text-[#18181B] font-bold inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
-                  >
-                    <span>{isLastQuestion ? 'Generate Document' : 'Next Question'}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-            </div>
-          </div>
-        );
-      })()}
 
       {/* ============================================================ */}
       {/* RENAME CREDENTIAL WITH AI MODAL */}
