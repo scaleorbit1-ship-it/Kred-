@@ -1363,8 +1363,10 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         searchResults: aiResult.searchResults,
       };
 
+      let savedMsgId = aiMsg.id;
       if (targetThreadId) {
-        dbService.addMessage(targetThreadId, {
+        const added = dbService.addMessage(targetThreadId, {
+          id: aiMsg.id,
           role: 'assistant',
           text: aiResult.answer,
           sources: aiResult.sources,
@@ -1373,6 +1375,9 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           form: aiResult.form,
           searchResults: aiResult.searchResults,
         });
+        if (added?.id) {
+          savedMsgId = added.id;
+        }
       }
 
       // Open Preview Canvas if the user requested canvas OR asked to generate a deliverable
@@ -1495,7 +1500,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
       // If response includes clarification questions, trigger popup modal
       if (aiResult.questions && aiResult.questions.length > 0) {
-        setActiveQuestionPopupMsgId(aiMsg.id);
+        setActiveQuestionPopupMsgId(savedMsgId);
       }
 
       setTimeout(scrollToBottom, 100);

@@ -419,9 +419,9 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
     return null;
   }
 
-  // 2. Flashcards / Study Cards requests (including typos like flshcard, flshcards, etc.)
+  // 2. Flashcards / Study Cards requests (including typos like flshcard, flshcards, fashcard, etc.)
   const isFlashcard =
-    /(flash\s*cards?|flsh\s*cards?|flshcard|flashcard|study\s*cards?|quiz\s*cards?|revision\s*cards?|study\s*deck)/i.test(lowerMsg);
+    /(flash\s*cards?|flsh\s*cards?|flshcard|flashcard|fash\s*cards?|fashcard|flesh\s*cards?|fleshcard|study\s*cards?|studycards?|quiz\s*cards?|revision\s*cards?|study\s*deck|anki\s*deck|revision\s*deck|\bflashcards?\b)/i.test(lowerMsg);
 
   if (isFlashcard) {
     return {
@@ -464,7 +464,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 3. CV / Resume / Curriculum Vitae requests
   const isCv =
-    /(cv|resume|curriculum\s+vitae|work\s+history|portfolio\s+resume|biodata)/i.test(lowerMsg);
+    /(cvs?|resumes?|resumee|curriculum\s*vitae|work\s*history|portfolio\s*resume|biodata|\bcv\b)/i.test(lowerMsg);
 
   if (isCv) {
     return {
@@ -506,9 +506,9 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
     };
   }
 
-  // 4. Pitch deck / Presentation requests
+  // 4. Pitch deck / Presentation requests (including typos like pit deck, pitchdek, ptich deck, etc.)
   const isPitchDeck =
-    /(pitch\s+deck|pitch\s+presentation|investor\s+deck|slide\s+deck|presentation|slides?|powerpoint|keynote)/i.test(lowerMsg);
+    /(pitch\s*deck|pit\s*deck|pith\s*deck|ptich\s*deck|picth\s*deck|pich\s*deck|pitch\s*dek|pitchdek|pitchdeck|pitch\s*presentation|investor\s*deck|slide\s*deck|slidedeck|slides\s*deck|presentation|slides?|powerpoint|\bppt\b|keynote|\bdeck\b)/i.test(lowerMsg);
 
   if (isPitchDeck) {
     return {
@@ -552,7 +552,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 5. Certificate & Award requests
   const isCertificate =
-    /(certificate|diploma|award\s+certificate|completion\s+certificate|attestation\s+certificate|credential\s+award)/i.test(lowerMsg);
+    /(certificates?|certficates?|certifcates?|diplomas?|award\s*certificates?|completion\s*certificates?|attestation\s*certificates?|credential\s*awards?|\bcert\b|\bcerts\b)/i.test(lowerMsg);
 
   if (isCertificate) {
     return {
@@ -594,7 +594,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 6. Invoice & Receipt requests
   const isInvoiceReceipt =
-    /(invoice|receipt|tax\s+invoice|sales\s+receipt|billing\s+statement|payment\s+receipt|expense\s+voucher)/i.test(lowerMsg);
+    /(invoices?|receipts?|reciepts?|tax\s*invoices?|sales\s*receipts?|billing\s*statements?|payment\s*receipts?|expense\s*vouchers?|billing|\bbills?\b)/i.test(lowerMsg);
 
   if (isInvoiceReceipt) {
     return {
@@ -636,7 +636,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 7. Letterhead & Business Letters
   const isLetterhead =
-    /(letterhead|business\s+letter|formal\s+letter|cover\s+letter|recommendation\s+letter|application\s+letter)/i.test(lowerMsg);
+    /(letterheads?|business\s*letters?|formal\s*letters?|cover\s*letters?|recommendation\s*letters?|application\s*letters?|reference\s*letters?|statement\s*of\s*purpose|\bsop\b)/i.test(lowerMsg);
 
   if (isLetterhead) {
     return {
@@ -679,7 +679,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 8. Graphics, Infographics, and Visual Diagrams
   const isGraphics =
-    /(graphics?|infographics?|diagrams?|visual\s+graphics?|visuals?|charts?)/i.test(lowerMsg);
+    /(graphics?|infographics?|diagrams?|visual\s*graphics?|visuals?|charts?|architecture\s*diagrams?|system\s*diagrams?|flowcharts?)/i.test(lowerMsg);
 
   if (isGraphics) {
     return {
@@ -722,7 +722,7 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 
   // 9. Study Plan & Educational Roadmaps
   const isStudyPlan =
-    /(study\s+plan|academic\s+roadmap|syllabus|revision\s+schedule|learning\s+path)/i.test(lowerMsg);
+    /(study\s*plans?|learning\s*plans?|academic\s*roadmaps?|study\s*roadmaps?|syllabus|revision\s*schedules?|learning\s*paths?|course\s*schedules?)/i.test(lowerMsg);
 
   if (isStudyPlan) {
     return {

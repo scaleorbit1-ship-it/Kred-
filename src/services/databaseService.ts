@@ -261,13 +261,16 @@ class DatabaseService {
     }
   }
 
-  public addMessage(threadId: string, message: Omit<ChatMessage, 'id' | 'timestamp'>): ChatMessage {
+  public addMessage(
+    threadId: string,
+    message: Omit<ChatMessage, 'id' | 'timestamp'> & { id?: string; timestamp?: string }
+  ): ChatMessage {
     const threads = this.getThreads();
     let thread = threads.find((t) => t.id === threadId);
     const newMsg: ChatMessage = {
       ...message,
-      id: `m_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      id: message.id || `m_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      timestamp: message.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
     if (!thread) {
