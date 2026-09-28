@@ -282,14 +282,30 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   const [newMemoryFact, setNewMemoryFact] = useState('');
   const [newMemoryCategory, setNewMemoryCategory] = useState<UserMemoryItem['category']>('profile');
 
+  const hasInitializedThreadRef = useRef(false);
+
   // Sync with Sovereign Database updates
   useEffect(() => {
     const unsubscribe = dbService.subscribe(() => {
       setCredentials(dbService.getCredentials());
-      setThreads(dbService.getThreads());
+      const loadedThreads = dbService.getThreads();
+      setThreads(loadedThreads);
       setTasks(dbService.getTasks());
       setMemories(dbService.getMemories());
+
+      if (!hasInitializedThreadRef.current && loadedThreads.length > 0) {
+        hasInitializedThreadRef.current = true;
+        setActiveThreadId(loadedThreads[0].id);
+      }
     });
+
+    // Also auto-select top thread on initial mount once if available
+    const initialThreads = dbService.getThreads();
+    if (!hasInitializedThreadRef.current && initialThreads.length > 0) {
+      hasInitializedThreadRef.current = true;
+      setActiveThreadId(initialThreads[0].id);
+    }
+
     return unsubscribe;
   }, []);
 
@@ -1208,8 +1224,26 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   // Handle new chat click
   const handleStartNewChat = () => {
     setCurrentView('chat');
-    setActiveThreadId(null);
     setInputText('');
+
+    const currentThreads = dbService.getThreads();
+    const existingEmpty = currentThreads.find((t) => t.title === 'New chat' && t.messages.length === 0);
+
+    if (existingEmpty) {
+      setActiveThreadId(existingEmpty.id);
+    } else {
+      const newThreadId = `t_${Date.now()}`;
+      const newThread: ChatThread = {
+        id: newThreadId,
+        title: 'New chat',
+        updatedAt: 'Just now',
+        messages: [],
+      };
+      const updated = [newThread, ...currentThreads];
+      dbService.saveThreads(updated);
+      setActiveThreadId(newThreadId);
+    }
+
     if (textareaRef.current) {
       textareaRef.current.focus();
     }
@@ -1366,7 +1400,14 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
       dbService.saveThreads(updated);
       setActiveThreadId(targetThreadId);
     } else {
+      const currentThread = threads.find((t) => t.id === targetThreadId);
       dbService.addMessage(targetThreadId, { role: 'user', text });
+
+      // After user messages the AI, if the chat is named "New chat" or had 0 messages, give it a descriptive name
+      if (!currentThread || currentThread.title === 'New chat' || currentThread.messages.length === 0) {
+        const generatedTitle = text.length > 34 ? text.slice(0, 34) + '...' : text;
+        dbService.renameThread(targetThreadId, generatedTitle);
+      }
     }
 
     setIsTyping(true);
@@ -1463,8 +1504,15 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         !isCv &&
         (lowerAnswer.includes('student study plan') ||
           lowerAnswer.includes('academic roadmap') ||
+          lowerAnswer.includes('task roadmap') ||
+          lowerAnswer.includes('step-by-step') ||
+          lowerAnswer.includes('## step 1') ||
+          lowerQuery.includes('teach me') ||
+          lowerQuery.includes('create a task') ||
           lowerQuery.includes('student plan') ||
           lowerQuery.includes('study plan') ||
+          lowerQuery.includes('task roadmap') ||
+          lowerQuery.includes('to-do list') ||
           lowerQuery.includes('roadmap'));
 
       const isCoverLetter =
@@ -1531,6 +1579,18 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
       if (!aiResult.questions?.length && shouldOpenCanvas && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
         openCanvas(aiResult.answer, docTitle, docType);
+      }
+
+      // Automatically add generated deliverables / study plans / task roadmaps to the Tasks section
+      if ((isDeliverable || isStudyPlan || isCv || effectiveMode === 'agent') && !aiResult.answer.startsWith('⚠️')) {
+        dbService.addTask({
+          title: docTitle || `Task: ${text.slice(0, 35)}...`,
+          description: `Generated ${docType.replace('_', ' ')} roadmap & agent task.`,
+          category: isCv ? 'cv' : isStudyPlan ? 'assignment' : 'audit',
+          status: 'ready',
+          prompt: text,
+        });
+        setTasks(dbService.getTasks());
       }
 
       // If response includes clarification questions, trigger popup modal
@@ -2814,22 +2874,6 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       <Globe className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">{isWebSearchActive ? 'Web Search ON' : 'Web Search'}</span>
                     </button>
-
-                    {/* Sovereign Memory Button */}
-                    <button
-                      type="button"
-                      onClick={() => setIsMemoryModalOpen(true)}
-                      className="px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all inline-flex items-center gap-1.5 cursor-pointer border border-[#E2E1DA] bg-[#FAF9F5] hover:bg-[#F3F2EE] text-[#18181B] shadow-2xs"
-                      title="View Sovereign AI Long-Term Memory"
-                    >
-                      <Brain className="w-3.5 h-3.5 text-[#10C77A]" />
-                      <span className="hidden sm:inline">Memory</span>
-                      {memories.length > 0 && (
-                        <span className="px-1.5 py-0.2 text-[10px] font-semibold bg-[#10C77A]/15 text-[#0E8A54] rounded-full">
-                          {memories.length}
-                        </span>
-                      )}
-                    </button>
                   </div>
 
                   {/* Right Controls: Referenced Credentials Dropdown, Mic, Audio, Send */}
@@ -4071,22 +4115,6 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                     >
                       <Globe className="w-3 h-3" />
                       <span className="hidden sm:inline">{isWebSearchActive ? 'Web ON' : 'Web'}</span>
-                    </button>
-
-                    {/* Sovereign Memory Button in bottom bar */}
-                    <button
-                      type="button"
-                      onClick={() => setIsMemoryModalOpen(true)}
-                      className="px-2 py-0.5 rounded-lg text-[11px] font-medium transition-all inline-flex items-center gap-1 cursor-pointer border border-[#E2E1DA] bg-[#FAF9F5] hover:bg-[#F3F2EE] text-[#18181B] shadow-2xs"
-                      title="View Sovereign AI Long-Term Memory"
-                    >
-                      <Brain className="w-3 h-3 text-[#10C77A]" />
-                      <span className="hidden sm:inline">Memory</span>
-                      {memories.length > 0 && (
-                        <span className="px-1.5 py-0.2 text-[9.5px] font-semibold bg-[#10C77A]/15 text-[#0E8A54] rounded-full">
-                          {memories.length}
-                        </span>
-                      )}
                     </button>
 
                     {/* Referenced Files Indicator */}

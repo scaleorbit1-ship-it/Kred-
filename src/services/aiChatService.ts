@@ -6,6 +6,7 @@
  */
 import dbService, { StoredCredential, InteractiveForm, FormField, UserMemoryItem } from './databaseService';
 import { searchDuckDuckGo, WebSearchResult } from './webSearchService';
+import { GoogleGenAI } from '@google/genai';
 
 export interface ClarificationOption {
   id: string;
@@ -658,6 +659,116 @@ export const detectIntentMode = (
   return { mode: 'chat', taskAnalysis };
 };
 
+async function callClientSideGemini(
+  query: string,
+  options: AiAuditOptions,
+  effectiveMode: 'chat' | 'agent',
+  webSearchResults: WebSearchResult[],
+  credentials: StoredCredential[],
+  intentAnalysis: any
+): Promise<AiAuditResponse> {
+  const userMemories = options.memories || dbService.getMemories();
+  const memoryContext = userMemories.length > 0
+    ? userMemories.map((m) => `• [${(m.category || 'fact').toUpperCase()}]: ${m.fact}`).join('\n')
+    : '(No long-term user memories recorded yet.)';
+
+  let userContext = credentials.length > 0
+    ? credentials.map((c) => `- ${c.name} (${c.issuer}, ${c.type})`).join('\n')
+    : '(No credentials in vault)';
+
+  if (webSearchResults.length > 0) {
+    userContext += `\n\nLive Search Grounding:\n` + webSearchResults.map((r) => `• ${r.title}: ${r.snippet}`).join('\n');
+  }
+
+  const systemPrompt = `You are Kred, the AI agent inside Kred — a sovereign credential intelligence and document synthesis platform. Users work with you to verify credentials, ask questions, synthesize documents (CVs, study plans, flashcards, slide decks, receipts), and create step-by-step task roadmaps to learn or accomplish goals.
+
+When asked to teach something or create a task / roadmap (e.g. "teach me about X", "create a task for X", "step by step guide for X"):
+Always output a complete, structured Step-by-Step Task Roadmap in Markdown:
+# Task Roadmap: Teach Me [Topic]
+*Step-by-Step Learning & Execution To-Do List*
+
+## Step 1: [Step Title]
+**Duration:** [Estimated Time e.g. 20 mins]
+**Difficulty:** [Beginner / Intermediate / Advanced]
+**Overview:** [Brief explanation of what this step accomplishes]
+- [ ] [Sub-task item 1]
+- [ ] [Sub-task item 2]
+**Key Points:** [Key takeaway concept]
+**Tips:** [Pro tip]
+
+## Step 2: [Step Title]
+...
+
+Active Long-Term User Memories:
+${memoryContext}
+
+${credentials.length > 0 ? `User Vault Credentials:\n${userContext}` : ''}`;
+
+  const apiKey =
+    (import.meta as any).env?.VITE_GEMINI_API_KEY ||
+    (typeof window !== 'undefined' && (window as any).process?.env?.GEMINI_API_KEY) ||
+    '';
+
+  if (!apiKey) {
+    return {
+      answer: '⚠️ Failed to respond: Server endpoint returned an error, and VITE_GEMINI_API_KEY is not set on client environment.',
+      sources: [],
+      provider: 'failed',
+      mode: effectiveMode,
+      isDocument: false,
+    };
+  }
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const history = options.history || [];
+    const rawTurns = [
+      ...history.map((h) => ({
+        role: h.role === 'assistant' ? ('model' as const) : ('user' as const),
+        parts: [{ text: h.text }],
+      })),
+      { role: 'user' as const, parts: [{ text: query }] },
+    ];
+
+    const modelCandidate = 'gemini-3.1-flash-lite';
+    const response = await ai.models.generateContent({
+      model: modelCandidate,
+      contents: rawTurns,
+      config: {
+        temperature: effectiveMode === 'agent' ? 0.2 : 0.7,
+        systemInstruction: systemPrompt,
+      },
+    });
+
+    const text = response.text || '';
+    const autoQuestions = getAutonomousQuestionsForQuery(query);
+
+    const isDeliverableDoc =
+      !autoQuestions &&
+      (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration || query.toLowerCase().includes('teach me') || query.toLowerCase().includes('task') || query.toLowerCase().includes('roadmap')) &&
+      (text.includes('# ') || text.includes('## ') || text.includes('### ') || text.length > 100);
+
+    return {
+      answer: text,
+      sources: webSearchResults.length > 0 ? webSearchResults.map((r) => r.title) : ['Google Gemini (Client Fallback)'],
+      actionLabel: isDeliverableDoc ? 'Open Step-by-Step Task Canvas' : undefined,
+      provider: `gemini-client (${modelCandidate})`,
+      questions: autoQuestions,
+      searchResults: webSearchResults.length > 0 ? webSearchResults : undefined,
+      mode: effectiveMode,
+      isDocument: isDeliverableDoc,
+    };
+  } catch (clientErr: any) {
+    return {
+      answer: `⚠️ Failed to respond: ${clientErr?.message || 'Gemini API call failed.'}`,
+      sources: [],
+      provider: 'failed',
+      mode: effectiveMode,
+      isDocument: false,
+    };
+  }
+}
+
 export const getAiAuditResponse = async (
   query: string,
   options: AiAuditOptions = {}
@@ -752,15 +863,9 @@ export const getAiAuditResponse = async (
 
     const data = await response.json().catch(() => null);
 
-    if (!response.ok || !data || data.error) {
-      const errorMsg = data?.error || `Request failed with HTTP status ${response.status}.`;
-      return {
-        answer: `⚠️ Failed to respond: ${errorMsg}`,
-        sources: [],
-        provider: 'failed',
-        mode: effectiveMode,
-        isDocument: false,
-      };
+    if (!response.ok || !data || data.error || !data.text) {
+      // Fallback to client-side Gemini if backend route failed or returned error
+      return callClientSideGemini(query, options, effectiveMode, webSearchResults, credentials, intentAnalysis);
     }
 
     if (data && data.text) {
@@ -793,24 +898,11 @@ export const getAiAuditResponse = async (
       };
     }
 
-    return {
-      answer: '⚠️ Failed to respond. No output was returned by the AI model.',
-      sources: [],
-      provider: 'failed',
-      mode: effectiveMode,
-      isDocument: false,
-    };
+    return callClientSideGemini(query, options, effectiveMode, webSearchResults, credentials, intentAnalysis);
   } catch (err: any) {
-    console.error('Backend /api/chat error:', err);
-    return {
-      answer: `⚠️ Failed to respond: ${err?.message || 'Unable to reach the AI model service. Please check your network connection.'}`,
-      sources: [],
-      provider: 'failed',
-      mode: effectiveMode,
-      isDocument: false,
-    };
+    console.warn('Backend /api/chat error, attempting client-side fallback:', err);
+    return callClientSideGemini(query, options, effectiveMode, webSearchResults, credentials, intentAnalysis);
   }
-
 };
 
 export default getAiAuditResponse;

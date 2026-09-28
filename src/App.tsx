@@ -11,6 +11,7 @@ import BrandSystemModal from './components/BrandSystemModal';
 import SignInModal from './components/SignInModal';
 import SettingsModal from './components/SettingsModal';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { authService, AuthUser } from './services/authService';
 
 // Dedicated Full Website Pages
 import ProductPage from './pages/ProductPage';
@@ -26,10 +27,31 @@ import AuthPage from './pages/AuthPage';
 import SettingsPage from './pages/SettingsPage';
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<string>('home');
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => authService.getCurrentUser());
+  const [currentPage, setCurrentPage] = useState<string>(() => {
+    const initialUser = authService.getCurrentUser();
+    return initialUser ? 'assistant' : 'home';
+  });
   const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
   const [isSignInModalOpen, setIsSignInModalOpen] = useState(false);
   const { themeConfig, openSettings } = useTheme();
+
+  // Auto-route authenticated users directly to main website page ('assistant') when visiting/returning
+  useEffect(() => {
+    const unsub = authService.subscribe((user) => {
+      setCurrentUser(user);
+      if (user) {
+        // If logged-in user is returning or on public landing/auth pages, direct to main workspace page
+        setCurrentPage((prevPage) => {
+          if (prevPage === 'home' || prevPage === 'auth' || prevPage === 'get-started') {
+            return 'assistant';
+          }
+          return prevPage;
+        });
+      }
+    });
+    return unsub;
+  }, []);
 
   // Hidden developer hotkey to view brand system in code (Ctrl/Cmd + Shift + B)
   useEffect(() => {

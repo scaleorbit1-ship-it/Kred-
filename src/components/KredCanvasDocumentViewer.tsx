@@ -33,8 +33,48 @@ import {
   GraduationCap,
   Award,
   Shuffle,
+  ListTodo,
+  CheckSquare,
+  Square,
+  Clock,
+  Target,
+  Compass,
+  Plus,
+  Trash2,
+  TrendingUp,
+  Bookmark,
+  HelpCircle,
 } from 'lucide-react';
 import { KredLogoMark } from './KredLogo';
+import { dbService } from '../services/databaseService';
+
+export interface TaskRoadmapSubtask {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+export interface TaskRoadmapStep {
+  id: string;
+  num: number;
+  title: string;
+  description: string;
+  estimatedDuration?: string;
+  difficulty?: 'Beginner' | 'Intermediate' | 'Advanced';
+  subtasks: TaskRoadmapSubtask[];
+  keyPoints?: string[];
+  tips?: string;
+  resources?: string[];
+}
+
+export interface TaskRoadmapData {
+  title: string;
+  topic: string;
+  summary: string;
+  estimatedTotalTime?: string;
+  difficulty?: 'Beginner' | 'Intermediate' | 'Advanced';
+  steps: TaskRoadmapStep[];
+}
 
 export interface SlideItem {
   id: string;
@@ -546,6 +586,116 @@ function parseMarkdownToCv(content: string, defaultName: string = 'Alex Johnson'
   };
 }
 
+/**
+ * Intelligent Markdown to Task Roadmap Parser
+ */
+function parseMarkdownToTaskRoadmap(content: string, defaultTitle: string): TaskRoadmapData {
+  const cleanMd = (s: string) => s.replace(/\*\*/g, '').replace(/^#+\s*/, '').trim();
+
+  // Title extraction
+  const titleMatch = content.match(/#+\s*(?:Task Roadmap|Study Plan|Learning Roadmap|Roadmap|Plan)?[:\s]*([^\n]+)/i);
+  const title = titleMatch ? cleanMd(titleMatch[1]) : defaultTitle || 'Interactive Task Roadmap';
+
+  // Summary extraction
+  const summaryMatch = content.match(/(?:\*|_)?(?:Step-by-Step|Summary|Overview|Goal)(?:\*|_)?[:\s]*([^\n]+)/i);
+  const summary = summaryMatch ? cleanMd(summaryMatch[1]) : 'A structured, step-by-step interactive to-do list and execution guide.';
+
+  // Split steps
+  let stepBlocks = content.split(/(?=(?:^|\n)(?:##?\s*)?(?:Step|Phase|Milestone|Part)\s+\d+)/i).filter((s) => s.trim().length > 10);
+
+  if (stepBlocks.length < 2) {
+    stepBlocks = content.split(/\n## |\n### /).filter((s) => s.trim().length > 10);
+  }
+
+  const steps: TaskRoadmapStep[] = [];
+
+  stepBlocks.forEach((block, idx) => {
+    const lines = block.trim().split('\n').filter((l) => l.trim().length > 0);
+    const stepTitleLine = lines[0] || `Step ${idx + 1}`;
+    const stepTitle = cleanMd(stepTitleLine).replace(/^(Step|Phase|Milestone|Part)\s+\d+[:\s-]*/i, '');
+
+    let duration = '20 mins';
+    let difficulty: 'Beginner' | 'Intermediate' | 'Advanced' = 'Beginner';
+    let overview = '';
+    const subtasks: TaskRoadmapSubtask[] = [];
+    const keyPoints: string[] = [];
+    let tips = '';
+
+    lines.slice(1).forEach((line) => {
+      const trimmed = line.trim();
+      const durMatch = trimmed.match(/(?:\*\*|\*)?(?:Duration|Estimated Time|Time)(?:\*\*|\*)?:\s*([^\n]+)/i);
+      const diffMatch = trimmed.match(/(?:\*\*|\*)?(?:Difficulty|Level)(?:\*\*|\*)?:\s*([^\n]+)/i);
+      const tipMatch = trimmed.match(/(?:\*\*|\*)?(?:Tip|Tips|Pro Tip)(?:\*\*|\*)?:\s*([^\n]+)/i);
+      const keyMatch = trimmed.match(/(?:\*\*|\*)?(?:Key Point|Key Points|Takeaway)(?:\*\*|\*)?:\s*([^\n]+)/i);
+
+      if (durMatch) {
+        duration = cleanMd(durMatch[1]);
+      } else if (diffMatch) {
+        const dStr = diffMatch[1].toLowerCase();
+        if (dStr.includes('advanced')) difficulty = 'Advanced';
+        else if (dStr.includes('intermed')) difficulty = 'Intermediate';
+        else difficulty = 'Beginner';
+      } else if (tipMatch) {
+        tips = cleanMd(tipMatch[1]);
+      } else if (keyMatch) {
+        keyPoints.push(cleanMd(keyMatch[1]));
+      } else if (/^[-*+]\s*\[[\s xX]\]/.test(trimmed) || /^[-*+]\s+/.test(trimmed)) {
+        const subtext = trimmed.replace(/^[-*+]\s*\[[\s xX]\]\s*/, '').replace(/^[-*+]\s*/, '').trim();
+        if (subtext.length > 2 && !/^(duration|difficulty|tip|key point)/i.test(subtext)) {
+          subtasks.push({
+            id: `st_${idx + 1}_${subtasks.length + 1}`,
+            text: cleanMd(subtext),
+            completed: trimmed.includes('[x]') || trimmed.includes('[X]'),
+          });
+        }
+      } else if (!overview && trimmed.length > 5 && !trimmed.startsWith('#')) {
+        overview = cleanMd(trimmed);
+      }
+    });
+
+    if (subtasks.length === 0) {
+      subtasks.push(
+        { id: `st_${idx + 1}_1`, text: `Understand core principles of ${stepTitle || 'this milestone'}`, completed: false },
+        { id: `st_${idx + 1}_2`, text: `Execute hands-on practice & review key concepts`, completed: false }
+      );
+    }
+
+    steps.push({
+      id: `step_${idx + 1}`,
+      num: idx + 1,
+      title: stepTitle || `Step ${idx + 1}`,
+      description: overview || `Complete milestones for ${stepTitle}`,
+      estimatedDuration: duration,
+      difficulty,
+      subtasks,
+      keyPoints: keyPoints.length > 0 ? keyPoints : undefined,
+      tips: tips || undefined,
+    });
+  });
+
+  if (steps.length === 0) {
+    steps.push({
+      id: 'step_1',
+      num: 1,
+      title: 'Foundational Knowledge & Setup',
+      description: 'Review core definitions, prerequisites, and foundational concepts.',
+      estimatedDuration: '20 mins',
+      difficulty: 'Beginner',
+      subtasks: [
+        { id: 'st_1_1', text: 'Read introductory concepts and definitions', completed: false },
+        { id: 'st_1_2', text: 'Set up development / study environment', completed: false },
+      ],
+    });
+  }
+
+  return {
+    title,
+    topic: title.replace(/Task Roadmap|Teach Me|Study Plan/gi, '').trim() || 'General Learning',
+    summary,
+    steps,
+  };
+}
+
 export const KredCanvasDocumentViewer: React.FC<KredCanvasDocumentViewerProps> = ({
   content,
   docType,
@@ -619,6 +769,91 @@ export const KredCanvasDocumentViewer: React.FC<KredCanvasDocumentViewerProps> =
       lowerContent.includes('executive summary') ||
       lowerContent.includes('professional summary') ||
       lowerContent.includes('work experience'));
+
+  const isTaskRoadmapDoc =
+    !isFlashcardDoc &&
+    !isSlideDeck &&
+    !isReceiptDoc &&
+    !isCvDoc &&
+    (docType === 'study_plan' ||
+      docType === 'task_roadmap' ||
+      docType === 'task' ||
+      docType === 'roadmap' ||
+      lowerTitle.includes('task roadmap') ||
+      lowerTitle.includes('study plan') ||
+      lowerTitle.includes('learning roadmap') ||
+      lowerTitle.includes('teach me') ||
+      lowerTitle.includes('task') ||
+      lowerContent.includes('task roadmap') ||
+      lowerContent.includes('step-by-step') ||
+      lowerContent.includes('## step 1') ||
+      lowerContent.includes('## step 2'));
+
+  const [interactiveRoadmap, setInteractiveRoadmap] = useState<TaskRoadmapData | null>(null);
+  const [addedCustomTaskInput, setAddedCustomTaskInput] = useState<Record<string, string>>({});
+  const [isTaskSavedToQueue, setIsTaskSavedToQueue] = useState(false);
+
+  useEffect(() => {
+    if (isTaskRoadmapDoc) {
+      setInteractiveRoadmap(parseMarkdownToTaskRoadmap(content, title));
+    }
+  }, [content, title, isTaskRoadmapDoc]);
+
+  const toggleSubtask = (stepId: string, subtaskId: string) => {
+    if (!interactiveRoadmap) return;
+    setInteractiveRoadmap((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        steps: prev.steps.map((s) => {
+          if (s.id !== stepId) return s;
+          return {
+            ...s,
+            subtasks: s.subtasks.map((st) => {
+              if (st.id !== subtaskId) return st;
+              return { ...st, completed: !st.completed };
+            }),
+          };
+        }),
+      };
+    });
+  };
+
+  const handleAddCustomSubtask = (stepId: string) => {
+    const text = (addedCustomTaskInput[stepId] || '').trim();
+    if (!text || !interactiveRoadmap) return;
+
+    setInteractiveRoadmap((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        steps: prev.steps.map((s) => {
+          if (s.id !== stepId) return s;
+          return {
+            ...s,
+            subtasks: [
+              ...s.subtasks,
+              { id: `st_custom_${Date.now()}`, text, completed: false },
+            ],
+          };
+        }),
+      };
+    });
+
+    setAddedCustomTaskInput((prev) => ({ ...prev, [stepId]: '' }));
+  };
+
+  const handleSaveRoadmapToAgentTasks = () => {
+    if (!interactiveRoadmap) return;
+    dbService.addTask({
+      title: interactiveRoadmap.title,
+      description: interactiveRoadmap.summary || 'Interactive Step-by-Step Task Roadmap created by AI',
+      category: 'assignment',
+      status: 'in_progress',
+      prompt: `Task Roadmap: ${interactiveRoadmap.title}`,
+    });
+    setIsTaskSavedToQueue(true);
+  };
 
   // Keyboard navigation for Flashcards & Slides
   useEffect(() => {
@@ -1574,7 +1809,205 @@ export const KredCanvasDocumentViewer: React.FC<KredCanvasDocumentViewerProps> =
   }
 
   // =========================================================================
-  // 5. DEFAULT DOCUMENT / ARTICLE / BLUEPRINT RENDERER
+  // 5. TASK ROADMAP & STEP-BY-STEP TO-DO LIST PREVIEW
+  // =========================================================================
+  if (isTaskRoadmapDoc && interactiveRoadmap) {
+    const totalSubtasks = interactiveRoadmap.steps.reduce((acc, s) => acc + s.subtasks.length, 0);
+    const completedSubtasks = interactiveRoadmap.steps.reduce((acc, s) => acc + s.subtasks.filter((st) => st.completed).length, 0);
+    const percent = totalSubtasks > 0 ? Math.round((completedSubtasks / totalSubtasks) * 100) : 0;
+
+    return (
+      <div id="kred-canvas-print-area" className="w-full max-w-[820px] mx-auto space-y-5 font-sans select-none">
+        {/* Header Bar */}
+        <div className="flex items-center justify-between pb-3 border-b border-[#E2E1DA]">
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-bold text-[14px] text-[#3B82F6]">kred.</span>
+            <span className="text-[13px] font-bold text-[#18181B]">Step-by-Step Task Roadmap</span>
+            <span className="px-2 py-0.5 rounded-full bg-[#3B82F6]/15 border border-[#3B82F6]/30 text-[10.5px] font-semibold text-[#1D4ED8]">
+              {completedSubtasks}/{totalSubtasks} Items ({percent}%)
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSaveRoadmapToAgentTasks}
+            className={`px-3 py-1.5 rounded-xl text-[11.5px] font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+              isTaskSavedToQueue
+                ? 'bg-[#10C77A] text-white'
+                : 'bg-[#18181B] hover:bg-[#27272A] text-white'
+            }`}
+          >
+            {isTaskSavedToQueue ? (
+              <>
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Saved to Agent Tasks Queue</span>
+              </>
+            ) : (
+              <>
+                <ListTodo className="w-3.5 h-3.5" />
+                <span>Save to My Tasks Queue</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Roadmap Overview & Progress Card */}
+        <div className="p-6 rounded-2xl bg-[#FCFBF8] border border-[#E3DFD3] shadow-xs space-y-3">
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-[11px] font-mono tracking-wider uppercase font-bold text-[#3B82F6] bg-[#EFF6FF] px-2.5 py-0.5 rounded border border-[#3B82F6]/20">
+                {interactiveRoadmap.topic || 'Step-by-Step Learning'}
+              </span>
+              <h2 className="text-[20px] font-bold text-[#18181B] mt-1.5">
+                {interactiveRoadmap.title}
+              </h2>
+              <p className="text-[13px] text-[#52525B] mt-1 leading-relaxed">
+                {interactiveRoadmap.summary}
+              </p>
+            </div>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="pt-2">
+            <div className="flex justify-between items-center text-[11px] font-mono text-[#71717A] mb-1">
+              <span>Execution Progress</span>
+              <span className="font-bold text-[#18181B]">{percent}% Complete</span>
+            </div>
+            <div className="w-full bg-[#EAE7DC] h-2 rounded-full overflow-hidden">
+              <div
+                className="bg-[#3B82F6] h-full transition-all duration-300"
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Steps List */}
+        <div className="space-y-4">
+          {interactiveRoadmap.steps.map((step) => {
+            const stepCompleted = step.subtasks.every((st) => st.completed);
+
+            return (
+              <div
+                key={step.id}
+                className={`p-5 rounded-2xl bg-[#FCFBF8] border transition-all ${
+                  stepCompleted
+                    ? 'border-[#10C77A] bg-[#F4FBF7]'
+                    : 'border-[#E3DFD3] hover:border-[#3B82F6]'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Step Number Circle */}
+                  <div
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 font-mono font-bold text-[13px] ${
+                      stepCompleted
+                        ? 'bg-[#10C77A] text-white'
+                        : 'bg-[#EFF6FF] text-[#1D4ED8] border border-[#3B82F6]/30'
+                    }`}
+                  >
+                    {stepCompleted ? <Check className="w-4 h-4" /> : step.num}
+                  </div>
+
+                  <div className="flex-1 space-y-3">
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h3 className="text-[16px] font-bold text-[#18181B]">
+                          {step.title}
+                        </h3>
+                        {step.description && (
+                          <p className="text-[12.5px] text-[#52525B] mt-0.5 leading-relaxed">
+                            {step.description}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {step.estimatedDuration && (
+                          <span className="px-2 py-0.5 rounded bg-[#F4F3ED] text-[#71717A] text-[10.5px] font-mono border border-[#E2E1DA]">
+                            ⏱ {step.estimatedDuration}
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded bg-[#EFF6FF] text-[#1D4ED8] text-[10.5px] font-semibold border border-[#3B82F6]/20">
+                          {step.difficulty || 'Beginner'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Interactive Subtask Checklist */}
+                    <div className="space-y-2 pt-1">
+                      <div className="text-[11px] font-mono uppercase font-bold text-[#71717A] tracking-wider">
+                        Action Checklist:
+                      </div>
+                      <div className="space-y-1.5">
+                        {step.subtasks.map((st) => (
+                          <label
+                            key={st.id}
+                            className={`flex items-start gap-2.5 p-2 rounded-xl border transition-all cursor-pointer text-[12.5px] ${
+                              st.completed
+                                ? 'bg-[#E8F8EE] border-[#10C77A]/30 text-[#0E8A54] line-through'
+                                : 'bg-white border-[#E2E1DA] hover:border-[#3B82F6] text-[#18181B]'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={st.completed}
+                              onChange={() => toggleSubtask(step.id, st.id)}
+                              className="mt-0.5 rounded border-[#E2E1DA] text-[#3B82F6] focus:ring-[#3B82F6] cursor-pointer"
+                            />
+                            <span className="flex-1 font-medium select-text">{st.text}</span>
+                          </label>
+                        ))}
+                      </div>
+
+                      {/* Add Subtask Input */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder="Add custom task or milestone..."
+                          value={addedCustomTaskInput[step.id] || ''}
+                          onChange={(e) =>
+                            setAddedCustomTaskInput((prev) => ({ ...prev, [step.id]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleAddCustomSubtask(step.id);
+                            }
+                          }}
+                          className="flex-1 px-3 py-1.5 rounded-xl border border-[#E2E1DA] bg-white text-[12px] text-[#18181B] focus:outline-none focus:border-[#3B82F6]"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddCustomSubtask(step.id)}
+                          className="px-3 py-1.5 rounded-xl bg-[#F4F3ED] hover:bg-[#E2E1DA] border border-[#E2E1DA] text-[11.5px] font-semibold text-[#18181B] cursor-pointer"
+                        >
+                          + Add
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Pro Tip or Key Points */}
+                    {step.tips && (
+                      <div className="p-3 rounded-xl bg-[#FFFBEB] border border-[#FDE68A] text-[12px] text-[#92400E] flex items-start gap-2">
+                        <span className="text-[14px]">💡</span>
+                        <div>
+                          <b>Pro Tip:</b> {step.tips}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // 6. DEFAULT DOCUMENT / ARTICLE / BLUEPRINT RENDERER
   // =========================================================================
   const htmlContent = marked.parse(content, { async: false, breaks: true }) as string;
 

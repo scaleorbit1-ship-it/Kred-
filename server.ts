@@ -20,7 +20,12 @@ const isProd = process.env.NODE_ENV === 'production';
 app.use(express.json());
 
 // System prompt builder for Kred AI Engine (NVIDIA NIM, Hugging Face & Sovereign Intelligence)
-const getSystemPrompt = (mode: 'chat' | 'agent' = 'chat', userContext: string = '', hasCredentials: boolean = false) => {
+const getSystemPrompt = (
+  mode: 'chat' | 'agent' = 'chat',
+  userContext: string = '',
+  hasCredentials: boolean = false,
+  memoryContext: string = ''
+) => {
   return `You are Kred, the AI agent inside Kred — a sovereign credential intelligence and document synthesis platform. Users upload academic and professional credentials into a locally encrypted vault and work with you to verify them, reason about opportunities (admissions, scholarships, hiring, contracting), and synthesize production-grade documents from their own real history.
 
 ════════════════════════════════════════

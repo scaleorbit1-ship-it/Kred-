@@ -27,6 +27,9 @@ import {
   FileCheck2,
   RotateCcw,
   User,
+  AtSign,
+  MicOff,
+  X,
 } from 'lucide-react';
 import { KredLogo } from './KredLogo';
 import BoltHorizon from './BoltHorizon';
@@ -120,11 +123,158 @@ export const CleanLandingPage: React.FC<CleanLandingPageProps> = ({
   });
   const [demoSubmitted, setDemoSubmitted] = useState(false);
 
-  // AI Workspace Prompt Input & Live Chat State in Hero
+  // AI Workspace Prompt Input & Live Chat State in Hero (Matches Main Website Page)
   const [inputText, setInputText] = useState('');
-  const [chatMode, setChatMode] = useState<'chat' | 'cowork'>('chat');
-  const [modelName, setModelName] = useState('KRED AI 3.0');
-  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [chatMode, setChatMode] = useState<'chat' | 'agent'>('chat');
+  const [isWebSearchActive, setIsWebSearchActive] = useState(false);
+  const [credentials, setCredentials] = useState(() => dbService.getCredentials());
+  const [selectedCredentialIds, setSelectedCredentialIds] = useState<string[]>([]);
+  const [showCredDropdown, setShowCredDropdown] = useState(false);
+  const [isAtMentionOpen, setIsAtMentionOpen] = useState(false);
+  const [atMentionQuery, setAtMentionQuery] = useState('');
+
+  // Speech to Text (Web Speech API)
+  const [isListening, setIsListening] = useState(false);
+  const speechRecognitionRef = useRef<any>(null);
+  const baseSpeechTextRef = useRef<string>('');
+
+  useEffect(() => {
+    const unsub = dbService.subscribe(() => {
+      setCredentials(dbService.getCredentials());
+    });
+    return unsub;
+  }, []);
+
+  // Initialize Speech Recognition once
+  useEffect(() => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        if (transcript) {
+          const base = baseSpeechTextRef.current ? baseSpeechTextRef.current.trim() : '';
+          const combined = base ? `${base} ${transcript.trim()}` : transcript.trim();
+          setInputText(combined);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        console.warn('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      speechRecognitionRef.current = recognition;
+    }
+
+    return () => {
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.abort();
+        } catch {}
+      }
+    };
+  }, []);
+
+  const toggleVoiceInput = () => {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      onShowToast?.('Speech to Text is not supported by your current browser.');
+      return;
+    }
+
+    if (isListening) {
+      try {
+        speechRecognitionRef.current?.stop();
+      } catch {}
+      setIsListening(false);
+      onShowToast?.('Voice recording ended.');
+    } else {
+      baseSpeechTextRef.current = inputText;
+      try {
+        speechRecognitionRef.current?.start();
+        setIsListening(true);
+        onShowToast?.('Listening... Speak now to dictate your prompt.');
+      } catch (err: any) {
+        try {
+          speechRecognitionRef.current?.abort();
+          setTimeout(() => {
+            baseSpeechTextRef.current = inputText;
+            speechRecognitionRef.current?.start();
+            setIsListening(true);
+            onShowToast?.('Listening... Speak now.');
+          }, 150);
+        } catch {}
+      }
+    }
+  };
+
+  const handleTagDocument = (credId: string) => {
+    const cred = credentials.find((c) => c.id === credId);
+    if (!cred) return;
+
+    setSelectedCredentialIds((prev) => {
+      if (prev.includes(credId)) return prev;
+      return [...prev, credId];
+    });
+
+    onShowToast?.(`Tagged "${cred.name}" in chat`);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 100);
+  };
+
+  const handleRemoveTag = (credId: string) => {
+    setSelectedCredentialIds((prev) => prev.filter((id) => id !== credId));
+  };
+
+  const handleSelectAtMentionDoc = (cred: any) => {
+    handleTagDocument(cred.id);
+
+    const lastAtIndex = inputText.lastIndexOf('@');
+    if (lastAtIndex !== -1) {
+      const beforeAt = inputText.slice(0, lastAtIndex);
+      setInputText(`${beforeAt}@${cred.name} `);
+    } else {
+      setInputText((prev) => (prev ? `${prev} @${cred.name} ` : `@${cred.name} `));
+    }
+
+    setIsAtMentionOpen(false);
+    setAtMentionQuery('');
+    setTimeout(() => textareaRef.current?.focus(), 50);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setInputText(val);
+
+    const lastAtIndex = val.lastIndexOf('@');
+    if (lastAtIndex !== -1) {
+      const textAfterAt = val.slice(lastAtIndex + 1);
+      if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+        setIsAtMentionOpen(true);
+        setAtMentionQuery(textAfterAt.toLowerCase());
+        return;
+      }
+    }
+    setIsAtMentionOpen(false);
+    setAtMentionQuery('');
+  };
+
   const [heroChatHistory, setHeroChatHistory] = useState<Array<{
     id: string;
     role: 'user' | 'assistant';
@@ -152,7 +302,11 @@ export const CleanLandingPage: React.FC<CleanLandingPageProps> = ({
     dbService.addMessage('t_hero_session', { role: 'user', text: cleanPrompt });
 
     try {
-      const response = await getAiAuditResponse(cleanPrompt);
+      const response = await getAiAuditResponse(cleanPrompt, {
+        mode: chatMode,
+        selectedCredentialIds,
+        webSearch: isWebSearchActive,
+      });
       const aiMsg = {
         id: `a_${Date.now()}`,
         role: 'assistant' as const,
@@ -239,40 +393,186 @@ export const CleanLandingPage: React.FC<CleanLandingPageProps> = ({
           </p>
 
           {/* =========================================================================
-              AI WORKSPACE PROMPT INPUT BOX
+              AI WORKSPACE PROMPT INPUT BOX (Identical to Main Website Page)
           ========================================================================= */}
           <div className="mt-10 sm:mt-12 max-w-[760px] mx-auto text-left">
-            <div className="w-full rounded-2xl bg-white border border-[#E0DFD7] shadow-[0_4px_24px_rgba(0,0,0,0.06)] p-3.5 sm:p-4 focus-within:border-[#18181B]/40 focus-within:shadow-[0_8px_32px_rgba(0,0,0,0.08)] transition-all">
+            <div className="w-full rounded-2xl bg-white border border-[#E0DFD7] shadow-[0_4px_24px_rgba(0,0,0,0.06)] p-3.5 sm:p-4 focus-within:border-[#18181B]/40 focus-within:shadow-[0_8px_32px_rgba(0,0,0,0.08)] transition-all relative">
                 
+                {/* Tagged Documents Chips Bar - Hidden on mobile for space */}
+                {selectedCredentialIds.length > 0 && (
+                  <div className="hidden sm:flex flex-wrap items-center gap-1.5 mb-2.5 pb-2 border-b border-[#F0EFEB]">
+                    <span className="text-[11px] font-medium text-[#71717A] flex items-center gap-1">
+                      <FileText className="w-3 h-3 text-[#10C77A]" />
+                      Tagged Documents:
+                    </span>
+                    {selectedCredentialIds.map((id) => {
+                      const cred = credentials.find((c) => c.id === id);
+                      if (!cred) return null;
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#FAF9F5] border border-[#E2E1DA] text-[11.5px] text-[#18181B] font-medium shadow-2xs hover:border-[#10C77A] transition-colors"
+                        >
+                          <span className="text-[#0E8A54] font-semibold">@{cred.name.length > 22 ? cred.name.slice(0, 22) + '...' : cred.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveTag(id)}
+                            className="p-0.5 rounded-full hover:bg-[#E5E4DE] text-[#71717A] hover:text-[#18181B] cursor-pointer"
+                            title="Remove document tag"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      onClick={() => setIsAtMentionOpen(true)}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
+                      title="Tag another document"
+                    >
+                      <AtSign className="w-3 h-3" />
+                      <span>Tag more</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* @ Mention Popover Dropdown */}
+                {isAtMentionOpen && (
+                  <div className="absolute left-3 bottom-full mb-2 w-72 sm:w-84 rounded-2xl bg-white border border-[#E0DFD7] shadow-xl p-2 z-50 animate-toast text-[12px]">
+                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-[#F0EFEB]">
+                      <div className="font-semibold text-[#18181B] flex items-center gap-1.5">
+                        <AtSign className="w-3.5 h-3.5 text-[#10C77A]" />
+                        <span>Tag a Document</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAtMentionOpen(false)}
+                        className="p-1 rounded-md text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    <div className="my-1.5 max-h-52 overflow-y-auto space-y-1 pr-1">
+                      {credentials.length === 0 ? (
+                        <div className="p-3 text-center text-[#71717A] text-[11.5px]">
+                          No documents in vault yet.
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAtMentionOpen(false);
+                              onNavigatePage('assistant');
+                            }}
+                            className="mt-1 block mx-auto text-[#0E8A54] font-semibold hover:underline cursor-pointer"
+                          >
+                            + Upload Document
+                          </button>
+                        </div>
+                      ) : (
+                        credentials
+                          .filter(
+                            (c) =>
+                              !atMentionQuery ||
+                              c.name.toLowerCase().includes(atMentionQuery) ||
+                              c.issuer.toLowerCase().includes(atMentionQuery) ||
+                              c.type.toLowerCase().includes(atMentionQuery)
+                          )
+                          .map((cred) => {
+                            const isTagged = selectedCredentialIds.includes(cred.id);
+                            return (
+                              <button
+                                key={cred.id}
+                                type="button"
+                                onClick={() => handleSelectAtMentionDoc(cred)}
+                                className={`w-full text-left p-2 rounded-xl transition-colors flex items-center justify-between gap-2 cursor-pointer ${
+                                  isTagged ? 'bg-[#10C77A]/10 text-[#0E8A54]' : 'hover:bg-[#F4F3ED] text-[#18181B]'
+                                }`}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold text-[12px] truncate flex items-center gap-1">
+                                    <FileText className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
+                                    <span className="truncate">{cred.name}</span>
+                                  </div>
+                                  <div className="text-[10.5px] text-[#71717A] truncate">
+                                    {cred.issuer} · {cred.type.toUpperCase()}
+                                  </div>
+                                </div>
+                                {isTagged ? (
+                                  <Check className="w-3.5 h-3.5 text-[#10C77A] shrink-0" />
+                                ) : (
+                                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#FAF9F5] border border-[#E2E1DA] text-[#71717A] shrink-0">
+                                    Tag
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                      )}
+                    </div>
+
+                    <div className="pt-1.5 border-t border-[#F0EFEB] px-2 flex items-center justify-between text-[11px] text-[#71717A]">
+                      <span>Click to tag in chat</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAtMentionOpen(false);
+                          onNavigatePage('assistant');
+                        }}
+                        className="text-[#0E8A54] hover:underline font-semibold cursor-pointer"
+                      >
+                        + Upload New
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Textarea */}
                 <form onSubmit={handleFormSubmit}>
                   <textarea
                     ref={textareaRef}
                     rows={3}
                     value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
                         e.preventDefault();
                         if (inputText.trim()) handleRunAudit(inputText.trim());
                       }
                     }}
-                    placeholder="Ask KRED AI about your school, Chevening, WES, Canadian PR, or UK visas..."
+                    placeholder={
+                      chatMode === 'agent'
+                        ? "Command your credentials (e.g. 'Help me create a CV from my documents' or 'Create an assignment')..."
+                        : "How can I help you today? Type @ to tag documents, ask questions, or say hello..."
+                    }
                     className="w-full bg-transparent text-[15px] sm:text-[16px] text-[#18181B] placeholder:text-[#9CA3AF] focus:outline-none resize-none leading-relaxed"
                   />
 
                   {/* Bottom Toolbar inside the Box */}
                   <div className="mt-3 pt-2.5 flex items-center justify-between border-t border-[#F0EFEB] text-[12.5px]">
                     
-                    {/* Left Controls: + Upload & Mode Toggle (Chat / Cowork) */}
+                    {/* Left Controls: + Upload, @ Tag, Mode Toggle (Chat / Agent), Web Search */}
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => onNavigatePage('assistant')}
-                        className="w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] flex items-center justify-center transition-colors cursor-pointer"
-                        title="Upload WAEC or degree certificate"
+                        className="hidden sm:flex w-7 h-7 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] items-center justify-center transition-colors cursor-pointer"
+                        title="Upload or attach credential"
                       >
                         <Plus className="w-4 h-4 stroke-[2.5]" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsAtMentionOpen(!isAtMentionOpen)}
+                        className={`hidden sm:flex w-7 h-7 rounded-lg items-center justify-center transition-colors cursor-pointer ${
+                          isAtMentionOpen
+                            ? 'bg-[#10C77A]/15 text-[#0E8A54]'
+                            : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
+                        }`}
+                        title="Tag a document (@)"
+                      >
+                        <AtSign className="w-4 h-4" />
                       </button>
 
                       <div className="flex items-center bg-[#F4F3ED] p-0.5 rounded-lg border border-[#E2E1DA]">
@@ -289,68 +589,171 @@ export const CleanLandingPage: React.FC<CleanLandingPageProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setChatMode('cowork')}
+                          onClick={() => setChatMode('agent')}
                           className={`px-3 py-1 rounded-md text-[12px] font-medium transition-all cursor-pointer ${
-                            chatMode === 'cowork'
+                            chatMode === 'agent'
                               ? 'bg-white text-[#18181B] shadow-2xs font-semibold'
                               : 'text-[#71717A] hover:text-[#18181B]'
                           }`}
                         >
-                          Cowork
+                          Agent
                         </button>
                       </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsWebSearchActive(!isWebSearchActive);
+                          onShowToast?.(!isWebSearchActive ? '🌐 DuckDuckGo Web Search enabled.' : 'Web Search disabled.');
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all inline-flex items-center gap-1.5 cursor-pointer border ${
+                          isWebSearchActive
+                            ? 'bg-[#3A6EFF]/15 text-[#3A6EFF] border-[#3A6EFF]/40 font-semibold shadow-2xs'
+                            : 'bg-transparent text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] border-transparent'
+                        }`}
+                        title="Toggle DuckDuckGo Web Search"
+                      >
+                        <Globe className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">{isWebSearchActive ? 'Web Search ON' : 'Web Search'}</span>
+                      </button>
                     </div>
 
-                    {/* Right Controls: Model Selector, Mic, Audio, Send */}
-                    <div className="flex items-center gap-2 sm:gap-2.5">
+                    {/* Right Controls: Referenced Credentials Dropdown, Mic, Audio, Send */}
+                    <div className="flex items-center gap-2">
                       
-                      {/* Model Selector */}
-                      <div className="relative">
+                      {/* Referenced Credentials Dropdown Selector */}
+                      <div className="relative hidden sm:block">
                         <button
                           type="button"
-                          onClick={() => setShowModelDropdown(!showModelDropdown)}
-                          className="text-[12px] text-[#5A5957] hover:text-[#18181B] flex items-center gap-1 transition-colors cursor-pointer"
+                          onClick={() => setShowCredDropdown(!showCredDropdown)}
+                          className="h-8 px-2.5 rounded-xl bg-[#FAF9F5] hover:bg-[#F3F2EE] border border-[#E2E1DA] text-[12px] text-[#18181B] font-medium inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                          title="Select which vault credentials the AI references"
                         >
-                          <span className="font-semibold text-[#18181B]">{modelName}</span>
-                          <span className="text-[#9CA3AF] hidden sm:inline">Medium</span>
-                          <ChevronDown className="w-3 h-3 text-[#71717A]" />
+                          <FileText className="w-3.5 h-3.5 text-[#10C77A]" />
+                          <span className="truncate max-w-[130px] sm:max-w-[190px]">
+                            {selectedCredentialIds.length === 0
+                              ? `All Documents (${credentials.length})`
+                              : `${selectedCredentialIds.length} of ${credentials.length} Docs`}
+                          </span>
+                          <ChevronDown className="w-3 h-3 text-[#71717A] shrink-0" />
                         </button>
 
-                        {showModelDropdown && (
-                          <div className="absolute right-0 bottom-full mb-2 w-48 rounded-xl bg-white border border-[#E0DFD7] shadow-xl p-1.5 z-40 animate-toast text-[12px]">
-                            {['KRED AI 3.0', 'KRED AI 3.0 Fast', 'Claude Sonnet 3.5'].map((m) => (
+                        {showCredDropdown && (
+                          <div className="absolute right-0 bottom-full mb-2 w-72 sm:w-80 rounded-2xl bg-white border border-[#E0DFD7] shadow-xl p-3 z-40 animate-toast text-[12px]">
+                            <div className="flex items-center justify-between pb-2 border-b border-[#F0EFEB]">
+                              <div className="font-semibold text-[#18181B] flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 text-[#10C77A]" />
+                                <span>Referenced Credentials</span>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedCredentialIds([])}
+                                  className={`px-1.5 py-0.5 rounded cursor-pointer ${
+                                    selectedCredentialIds.length === 0 ? 'bg-[#10C77A]/15 text-[#0E8A54] font-semibold' : 'text-[#71717A] hover:text-[#18181B]'
+                                  }`}
+                                >
+                                  All
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedCredentialIds(credentials.map((c) => c.id))}
+                                  className="text-[#71717A] hover:text-[#18181B] px-1.5 py-0.5 cursor-pointer"
+                                >
+                                  Select All
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="my-2 max-h-48 overflow-y-auto space-y-1.5 pr-1 no-scrollbar">
+                              {credentials.length === 0 ? (
+                                <div className="py-4 text-center text-[#71717A] text-[11.5px]">
+                                  No documents in vault yet.
+                                </div>
+                              ) : (
+                                credentials.map((cred) => {
+                                  const isChecked = selectedCredentialIds.length === 0 || selectedCredentialIds.includes(cred.id);
+                                  return (
+                                    <label
+                                      key={cred.id}
+                                      className="flex items-start gap-2 p-1.5 rounded-lg hover:bg-[#F4F3ED] cursor-pointer transition-colors"
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={isChecked}
+                                        onChange={(e) => {
+                                          if (selectedCredentialIds.length === 0) {
+                                            setSelectedCredentialIds(credentials.filter((c) => c.id !== cred.id).map((c) => c.id));
+                                          } else if (e.target.checked) {
+                                            setSelectedCredentialIds((prev) => [...prev, cred.id]);
+                                          } else {
+                                            setSelectedCredentialIds((prev) => prev.filter((id) => id !== cred.id));
+                                          }
+                                        }}
+                                        className="mt-0.5 rounded border-[#D4D4D8] text-[#10C77A] focus:ring-[#10C77A] cursor-pointer"
+                                      />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-[12px] font-medium text-[#18181B] truncate">
+                                          {cred.name}
+                                        </div>
+                                        <div className="text-[10.5px] text-[#71717A] truncate">
+                                          {cred.issuer} · {cred.type.toUpperCase()}
+                                        </div>
+                                      </div>
+                                    </label>
+                                  );
+                                })
+                              )}
+                            </div>
+
+                            <div className="pt-2 border-t border-[#F0EFEB] flex items-center justify-between">
                               <button
-                                key={m}
                                 type="button"
                                 onClick={() => {
-                                  setModelName(m);
-                                  setShowModelDropdown(false);
+                                  setShowCredDropdown(false);
+                                  onNavigatePage('assistant');
                                 }}
-                                className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-[#F3F2EE] transition-colors cursor-pointer text-[#18181B]"
+                                className="text-[#0E8A54] hover:underline text-[11.5px] font-semibold inline-flex items-center gap-1 cursor-pointer"
                               >
-                                {m}
+                                <Plus className="w-3 h-3" />
+                                <span>Upload New File</span>
                               </button>
-                            ))}
+                              <button
+                                type="button"
+                                onClick={() => setShowCredDropdown(false)}
+                                className="px-2.5 py-1 rounded-md bg-[#18181B] text-white text-[11px] font-semibold cursor-pointer"
+                              >
+                                Done
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
 
-                      {/* Mic Icon */}
+                      {/* Microphone Icon */}
                       <button
                         type="button"
-                        onClick={() => onShowToast('Voice dictation ready')}
-                        className="p-1.5 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
-                        title="Voice input"
+                        onClick={toggleVoiceInput}
+                        className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                          isListening
+                            ? 'bg-[#EF4444] text-white shadow-xs animate-pulse ring-2 ring-[#EF4444]/40'
+                            : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
+                        }`}
+                        title={isListening ? 'Listening... Click to stop speech-to-text' : 'Click to use Speech-to-Text'}
                       >
-                        <Mic className="w-4 h-4" />
+                        {isListening ? <MicOff className="w-4 h-4 animate-bounce" /> : <Mic className="w-4 h-4" />}
                       </button>
 
                       {/* Audio Waveform */}
                       <button
                         type="button"
-                        onClick={() => onNavigatePage('assistant')}
-                        className="p-1.5 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
-                        title="Audio mode"
+                        onClick={toggleVoiceInput}
+                        className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                          isListening
+                            ? 'text-[#10C77A] bg-[#10C77A]/10 animate-pulse'
+                            : 'text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE]'
+                        }`}
+                        title={isListening ? 'Voice recording active' : 'Audio dictation mode'}
                       >
                         <AudioWaveform className="w-4 h-4" />
                       </button>
