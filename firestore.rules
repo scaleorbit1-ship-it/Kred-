@@ -40,6 +40,16 @@ service cloud.firestore {
         allow read, write: if isOwner(userId) && isValidId(threadId);
       }
 
+      // User Agent Tasks Subcollection
+      match /tasks/{taskId} {
+        allow read, write: if isOwner(userId) && isValidId(taskId);
+      }
+
+      // User Sovereign Long-Term Memory Subcollection
+      match /memories/{memoryId} {
+        allow read, write: if isOwner(userId) && isValidId(memoryId);
+      }
+
       // User Assembled Dossiers & Verification Packages
       match /dossiers/{dossierId} {
         allow read, write: if isOwner(userId) && isValidId(dossierId);

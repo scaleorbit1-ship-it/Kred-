@@ -30,7 +30,7 @@
     },
     "ChatThread": {
       "title": "ChatThread",
-      "description": "AI Audit conversation thread",
+      "description": "AI Audit conversation history thread",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
@@ -39,6 +39,35 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "title"]
+    },
+    "AgentTask": {
+      "title": "AgentTask",
+      "description": "Autonomous background execution task",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "status": { "type": "string" },
+        "prompt": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "title", "category", "status"]
+    },
+    "UserMemory": {
+      "title": "UserMemory",
+      "description": "Sovereign long-term memory item learned by AI agent",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "category": { "type": "string" },
+        "fact": { "type": "string" },
+        "confidence": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "source": { "type": "string" }
+      },
+      "required": ["id", "category", "fact", "createdAt"]
     }
   },
   "firestore": {
@@ -53,6 +82,14 @@
     "/users/{userId}/threads/{threadId}": {
       "schema": "ChatThread",
       "description": "AI audit conversation history for the user"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "AgentTask",
+      "description": "User background agent tasks"
+    },
+    "/users/{userId}/memories/{memoryId}": {
+      "schema": "UserMemory",
+      "description": "Sovereign long-term memories and facts learned by the agent"
     }
   }
 }

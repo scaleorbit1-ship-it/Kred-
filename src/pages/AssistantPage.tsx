@@ -59,10 +59,11 @@ import {
   Bookmark,
   MessageSquare,
   GripVertical,
+  Brain,
 } from 'lucide-react';
 import { marked } from 'marked';
 import { KredLogo, KredLogoMark, KredSmileyRobotMark, KredBouncingCardsLoader } from '../components/KredLogo';
-import { dbService, StoredCredential, AgentTask, ClarificationQuestion, ClarificationOption, InteractiveForm, FormField } from '../services/databaseService';
+import { dbService, StoredCredential, AgentTask, ClarificationQuestion, ClarificationOption, InteractiveForm, FormField, UserMemoryItem } from '../services/databaseService';
 import { authService, AuthUser } from '../services/authService';
 import { getAiAuditResponse, detectIntentMode } from '../services/aiChatService';
 import { useTheme } from '../context/ThemeContext';
@@ -275,12 +276,19 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
   const [selectedCredentialIds, setSelectedCredentialIds] = useState<string[]>([]);
   const [showCredDropdown, setShowCredDropdown] = useState(false);
 
+  // Sovereign Long-Term Memory State
+  const [memories, setMemories] = useState<UserMemoryItem[]>(() => dbService.getMemories());
+  const [isMemoryModalOpen, setIsMemoryModalOpen] = useState(false);
+  const [newMemoryFact, setNewMemoryFact] = useState('');
+  const [newMemoryCategory, setNewMemoryCategory] = useState<UserMemoryItem['category']>('profile');
+
   // Sync with Sovereign Database updates
   useEffect(() => {
     const unsubscribe = dbService.subscribe(() => {
       setCredentials(dbService.getCredentials());
       setThreads(dbService.getThreads());
       setTasks(dbService.getTasks());
+      setMemories(dbService.getMemories());
     });
     return unsubscribe;
   }, []);
@@ -1299,6 +1307,32 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
     }, 400);
   };
 
+  // Sovereign Memory Handlers
+  const handleAddManualMemory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMemoryFact.trim()) return;
+    dbService.addMemory({
+      category: newMemoryCategory,
+      fact: newMemoryFact.trim(),
+      confidence: 1.0,
+      source: 'User Manual Entry',
+    });
+    setNewMemoryFact('');
+    onShowToast?.('New fact saved to Sovereign Memory!');
+  };
+
+  const handleRemoveMemory = (id: string) => {
+    dbService.removeMemory(id);
+    onShowToast?.('Memory entry removed.');
+  };
+
+  const handleClearAllMemories = () => {
+    if (window.confirm('Are you sure you want to clear all learned memories?')) {
+      dbService.clearMemories();
+      onShowToast?.('Sovereign Memory cleared.');
+    }
+  };
+
   // Send a message
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
@@ -1338,7 +1372,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
     setIsTyping(true);
 
     try {
-      const historyContext = messages.slice(-6).map((m) => ({
+      const historyContext = messages.slice(-30).map((m) => ({
         role: m.role as 'user' | 'assistant',
         text: m.text,
       }));
@@ -1348,6 +1382,7 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         selectedCredentialIds,
         history: historyContext,
         webSearch: isWebSearchActive,
+        memories,
       });
       setIsTyping(false);
 
@@ -2779,6 +2814,22 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       <Globe className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">{isWebSearchActive ? 'Web Search ON' : 'Web Search'}</span>
                     </button>
+
+                    {/* Sovereign Memory Button */}
+                    <button
+                      type="button"
+                      onClick={() => setIsMemoryModalOpen(true)}
+                      className="px-2.5 py-1 rounded-lg text-[12px] font-medium transition-all inline-flex items-center gap-1.5 cursor-pointer border border-[#E2E1DA] bg-[#FAF9F5] hover:bg-[#F3F2EE] text-[#18181B] shadow-2xs"
+                      title="View Sovereign AI Long-Term Memory"
+                    >
+                      <Brain className="w-3.5 h-3.5 text-[#10C77A]" />
+                      <span className="hidden sm:inline">Memory</span>
+                      {memories.length > 0 && (
+                        <span className="px-1.5 py-0.2 text-[10px] font-semibold bg-[#10C77A]/15 text-[#0E8A54] rounded-full">
+                          {memories.length}
+                        </span>
+                      )}
+                    </button>
                   </div>
 
                   {/* Right Controls: Referenced Credentials Dropdown, Mic, Audio, Send */}
@@ -4022,6 +4073,22 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                       <span className="hidden sm:inline">{isWebSearchActive ? 'Web ON' : 'Web'}</span>
                     </button>
 
+                    {/* Sovereign Memory Button in bottom bar */}
+                    <button
+                      type="button"
+                      onClick={() => setIsMemoryModalOpen(true)}
+                      className="px-2 py-0.5 rounded-lg text-[11px] font-medium transition-all inline-flex items-center gap-1 cursor-pointer border border-[#E2E1DA] bg-[#FAF9F5] hover:bg-[#F3F2EE] text-[#18181B] shadow-2xs"
+                      title="View Sovereign AI Long-Term Memory"
+                    >
+                      <Brain className="w-3 h-3 text-[#10C77A]" />
+                      <span className="hidden sm:inline">Memory</span>
+                      {memories.length > 0 && (
+                        <span className="px-1.5 py-0.2 text-[9.5px] font-semibold bg-[#10C77A]/15 text-[#0E8A54] rounded-full">
+                          {memories.length}
+                        </span>
+                      )}
+                    </button>
+
                     {/* Referenced Files Indicator */}
                     <button
                       type="button"
@@ -4807,6 +4874,154 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
                 className="px-4 py-2 rounded-xl bg-[#10C77A] hover:bg-[#0EBA71] text-[#18181B] text-[12.5px] font-bold shadow-2xs cursor-pointer active:scale-95"
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sovereign AI Long-Term Memory Modal */}
+      {isMemoryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-fade-in">
+          <div className="w-full max-w-xl bg-white rounded-2xl border border-[#E2E1DA] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-[#F0EFEB] flex items-center justify-between bg-[#FAF9F5]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#10C77A]/15 text-[#0E8A54] flex items-center justify-center shrink-0">
+                  <Brain className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-[16px] font-bold text-[#18181B] flex items-center gap-2">
+                    <span>Sovereign AI Memory</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10.5px] font-mono font-semibold bg-[#10C77A]/15 text-[#0E8A54]">
+                      {memories.length} {memories.length === 1 ? 'Fact' : 'Facts'} Learned
+                    </span>
+                  </h2>
+                  <p className="text-[12px] text-[#71717A]">
+                    Learned background, credentials, preferences & goals persistent across your sessions.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMemoryModalOpen(false)}
+                className="p-1.5 rounded-lg text-[#71717A] hover:text-[#18181B] hover:bg-[#F3F2EE] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body: Manual Add + Memory List */}
+            <div className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+              {/* Add Memory Form */}
+              <form onSubmit={handleAddManualMemory} className="p-3.5 rounded-xl bg-[#F8F7F2] border border-[#E2E1DA] space-y-2.5">
+                <div className="text-[12px] font-semibold text-[#18181B] flex items-center justify-between">
+                  <span>Add a Custom Fact for the AI:</span>
+                  <select
+                    value={newMemoryCategory}
+                    onChange={(e) => setNewMemoryCategory(e.target.value as any)}
+                    className="text-[11px] px-2 py-0.5 rounded bg-white border border-[#E2E1DA] text-[#18181B] outline-none cursor-pointer"
+                  >
+                    <option value="profile">Profile / Name</option>
+                    <option value="academic">Academic & Degree</option>
+                    <option value="career">Career & Role</option>
+                    <option value="preference">Style Preference</option>
+                    <option value="project">Project / Venture</option>
+                    <option value="fact">General Fact</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newMemoryFact}
+                    onChange={(e) => setNewMemoryFact(e.target.value)}
+                    placeholder="e.g. 'Graduated with BSc in Cyber Security with 3.8 GPA'..."
+                    className="flex-1 text-[12.5px] px-3 py-2 rounded-xl bg-white border border-[#E2E1DA] focus:border-[#10C77A] text-[#18181B] outline-none transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!newMemoryFact.trim()}
+                    className="px-3.5 py-2 rounded-xl bg-[#18181B] hover:bg-[#10C77A] hover:text-[#18181B] text-white text-[12px] font-semibold transition-all disabled:opacity-40 cursor-pointer shrink-0 active:scale-95"
+                  >
+                    Save Fact
+                  </button>
+                </div>
+              </form>
+
+              {/* Stored Facts List */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[12px] font-semibold text-[#18181B]">
+                    Active Memory Enclave:
+                  </span>
+                  {memories.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearAllMemories}
+                      className="text-[11px] text-rose-600 hover:underline cursor-pointer"
+                    >
+                      Clear All Memory
+                    </button>
+                  )}
+                </div>
+
+                {memories.length === 0 ? (
+                  <div className="py-8 text-center border-2 border-dashed border-[#E2E1DA] rounded-xl text-[#71717A] text-[12.5px]">
+                    <Brain className="w-8 h-8 text-[#A1A1AA] mx-auto mb-2 opacity-50" />
+                    <p className="font-medium text-[#18181B]">No memories recorded yet.</p>
+                    <p className="text-[11.5px] max-w-xs mx-auto mt-1">
+                      As you chat, mention your background, and upload credentials, the AI automatically stores facts here and recalls them in all responses.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+                    {memories.map((mem) => (
+                      <div
+                        key={mem.id}
+                        className="p-3 rounded-xl bg-white border border-[#E2E1DA] hover:border-[#10C77A]/50 transition-all flex items-start justify-between gap-2.5 shadow-2xs group"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <span className="px-1.5 py-0.2 text-[9.5px] font-mono font-semibold rounded bg-[#10C77A]/12 text-[#0E8A54] uppercase tracking-wider">
+                              {mem.category}
+                            </span>
+                            {mem.source && (
+                              <span className="text-[10.5px] text-[#71717A] truncate">
+                                · {mem.source}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[12.5px] text-[#18181B] font-medium leading-snug">
+                            {mem.fact}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMemory(mem.id)}
+                          className="text-[#A1A1AA] hover:text-rose-600 p-1 rounded-md opacity-70 group-hover:opacity-100 transition-all cursor-pointer"
+                          title="Remove this memory"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-3.5 border-t border-[#F0EFEB] bg-[#FAF9F5] flex items-center justify-between text-[11.5px] text-[#71717A]">
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-[#10C77A]" />
+                <span>Sovereign client enclave · Zero-telemetry</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsMemoryModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl bg-[#18181B] hover:bg-[#10C77A] hover:text-[#18181B] text-white text-[12px] font-semibold transition-all cursor-pointer active:scale-95"
+              >
+                Done
               </button>
             </div>
           </div>

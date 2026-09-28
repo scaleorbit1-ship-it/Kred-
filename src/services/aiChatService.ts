@@ -4,7 +4,7 @@
  * 1. CHAT MODE (default) — plain conversational reply, no canvas, no agent button.
  * 2. AGENT MODE — invokes the agent to produce a structured document/file and opens in the canvas.
  */
-import dbService, { StoredCredential, InteractiveForm, FormField } from './databaseService';
+import dbService, { StoredCredential, InteractiveForm, FormField, UserMemoryItem } from './databaseService';
 import { searchDuckDuckGo, WebSearchResult } from './webSearchService';
 
 export interface ClarificationOption {
@@ -37,6 +37,7 @@ export interface AiAuditOptions {
   selectedCredentialIds?: string[];
   history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   webSearch?: boolean;
+  memories?: UserMemoryItem[];
 }
 
 export interface TaskReasoningAnalysis {
@@ -722,6 +723,8 @@ export const getAiAuditResponse = async (
 
   // 1. Call full-stack backend endpoint (/api/chat)
   try {
+    const userMemories = options.memories || dbService.getMemories();
+
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -731,6 +734,11 @@ export const getAiAuditResponse = async (
         history: options.history || [],
         webSearch: needsWebSearch,
         searchResults: webSearchResults,
+        memories: userMemories.map((m) => ({
+          category: m.category,
+          fact: m.fact,
+          confidence: m.confidence,
+        })),
         credentials: credentials.map((c) => ({
           name: c.name,
           issuer: c.issuer,

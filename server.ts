@@ -162,12 +162,53 @@ BOUNDARIES
 - If a user's claim about their own credentials seems inconsistent with their uploaded material, say so directly rather than smoothing it over in the generated document.
 
 ════════════════════════════════════════
-WHAT GOOD LOOKS LIKE
+🧠 SOVEREIGN LONG-TERM MEMORY & USER INTELLIGENCE
 ════════════════════════════════════════
-A good turn is: understand what's actually being asked, ask only what's missing, generate only what's grounded in real data, and get out of the way. The user should never have to fight you to get a plain answer, and never get a document with something in it they didn't actually provide.
+You possess an active, persistent sovereign memory of the user across sessions, threads, and tasks.
+- Directly recall and seamlessly apply these remembered facts (user's name, degree, GPA, target institutions/roles, writing preferences, and past deliverables).
+- Never ask the user for information that is already stored in their memory or vault.
+- When asked "What do you know about me?", "What are my credentials?", "What are my goals?", or "What do you remember?", state the known facts directly and accurately.
+- Whenever generating deliverables (CVs, cover letters, study plans, flashcards, pitch decks), automatically personalize them using their remembered background and goals.
+
+Active Long-Term User Memories:
+${memoryContext || '(No long-term user memories recorded yet.)'}
 
 ${hasCredentials ? `User Vault Stored Credentials:\n${userContext}` : '(Vault contains no documents yet.)'}`;
 };
+
+// Clean and validate conversation turns for Google Gemini multi-turn contents
+function buildGeminiContents(
+  history: Array<{ role: string; text?: string; content?: string }>,
+  currentMessage: string
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const turns: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
+
+  const rawTurns = [
+    ...history.map((h) => ({
+      role: h.role === 'assistant' || h.role === 'model' ? ('model' as const) : ('user' as const),
+      text: String(h.text || h.content || '').trim(),
+    })).filter((t) => t.text.length > 0),
+    { role: 'user' as const, text: currentMessage.trim() },
+  ];
+
+  for (const t of rawTurns) {
+    if (turns.length === 0) {
+      if (t.role === 'model') {
+        turns.push({ role: 'user', parts: [{ text: 'Hello' }] });
+      }
+      turns.push({ role: t.role, parts: [{ text: t.text }] });
+    } else {
+      const prev = turns[turns.length - 1];
+      if (prev.role === t.role) {
+        prev.parts[0].text += `\n\n${t.text}`;
+      } else {
+        turns.push({ role: t.role, parts: [{ text: t.text }] });
+      }
+    }
+  }
+
+  return turns;
+}
 
 // Helper to decode DuckDuckGo redirect URLs
 function extractCleanUrl(rawUrl: string): string {
@@ -768,7 +809,15 @@ function getAutonomousClarificationQuestions(message: string): { text: string; q
 // AI Chat endpoint powered by Gemini (gemini-3.8-flash with gemini-3.1-flash-lite fallback)
 app.post('/api/chat', async (req: Request, res: Response) => {
   try {
-    const { message, history = [], credentials = [], mode = 'chat', webSearch = false, searchResults = [] } = req.body;
+    const {
+      message,
+      history = [],
+      credentials = [],
+      memories = [],
+      mode = 'chat',
+      webSearch = false,
+      searchResults = [],
+    } = req.body;
 
     if (!message || typeof message !== 'string') {
       res.status(400).json({ error: 'Missing or invalid message string.' });
@@ -816,13 +865,21 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         .join('\n');
     }
 
+    const hasMemories = Array.isArray(memories) && memories.length > 0;
+    let memoryContext = '';
+    if (hasMemories) {
+      memoryContext = memories
+        .map((m: any) => `• [${(m.category || 'fact').toUpperCase()}]: ${m.fact}`)
+        .join('\n');
+    }
+
     if (activeSearchResults.length > 0) {
       userContext += `\n\nLive Real-Time Web Search Grounding (DuckDuckGo 2026 Web Index):\n` +
         activeSearchResults.map((r: any) => `• Title: "${r.title}"\n  Snippet: ${r.snippet}\n  URL: ${r.url}`).join('\n\n');
     }
 
     const systemPrompt =
-      getSystemPrompt(mode, userContext, hasCredentials) +
+      getSystemPrompt(mode, userContext, hasCredentials, memoryContext) +
       `\n\nTEMPORAL GROUNDING & SEARCH INTELLIGENCE:
 - Current Year: 2026 (September 2026).
 - When asked about current events, technology conferences (such as Meta Connect, Apple events, Google I/O, AI announcements, Llama models, Gemini models, hardware releases), news, sports, or recent developments:
@@ -980,10 +1037,13 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     const geminiApiKey = (process.env.GEMINI_API_KEY || '').trim();
     const hfApiKey = (process.env.HUGGINGFACE_API_KEY || process.env.HF_TOKEN || process.env.HF_API_KEY || '').trim();
 
+    // Deep context window: preserve up to 30 past turns for long conversation memory
+    const historySlice = Array.isArray(history) ? history.slice(-30) : [];
+
     // Standard OpenAI/HF message format
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.slice(-8).map((h: any) => ({
+      ...historySlice.map((h: any) => ({
         role: h.role === 'user' ? 'user' : 'assistant',
         content: String(h.text || h.content || ''),
       })),
@@ -1014,17 +1074,8 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         ].filter(Boolean))
       ) as string[];
 
-      // Construct Gemini conversation: alternate user/model turns without system messages in contents
-      const geminiContents = [
-        ...history.slice(-8).map((h: any) => ({
-          role: h.role === 'user' ? 'user' : 'model',
-          parts: [{ text: String(h.text || h.content || '') }],
-        })),
-        {
-          role: 'user',
-          parts: [{ text: message }],
-        },
-      ];
+      // Construct Gemini conversation turns with alternation and non-empty guarantees
+      const geminiContents = buildGeminiContents(historySlice, message);
 
       for (const targetModel of geminiCandidateModels) {
         try {
