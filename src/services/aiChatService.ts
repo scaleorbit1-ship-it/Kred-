@@ -291,6 +291,32 @@ export const analyzeTaskRequest = (
  */
 export const getAutonomousQuestionsForQuery = (query: string): ClarificationQuestion[] | undefined => {
   const q = query.toLowerCase().trim();
+
+  // Pure greetings or informational queries should never trigger clarification questions
+  if (
+    q === 'hello' ||
+    q === 'hi' ||
+    q === 'hey' ||
+    q === 'how are you' ||
+    q === 'good morning' ||
+    q === 'good afternoon' ||
+    q === 'good evening' ||
+    q.startsWith('hello') ||
+    q.startsWith('hi ') ||
+    q.startsWith('hey ') ||
+    q.startsWith('what is') ||
+    q.startsWith('what are') ||
+    q.startsWith('how do') ||
+    q.startsWith('how does') ||
+    q.startsWith('why is') ||
+    q.startsWith('why do') ||
+    q.startsWith('tell me about') ||
+    q.startsWith('can you explain') ||
+    q.startsWith('explain ')
+  ) {
+    return undefined;
+  }
+
   if (
     q.includes('[preference_selected]') ||
     q.includes('target:') ||
@@ -541,10 +567,11 @@ export const getAutonomousQuestionsForQuery = (query: string): ClarificationQues
 
   // 8. Open-ended slides / presentation requests
   if (
-    /(slides?|presentations?|powerpoint|keynote)/i.test(q) &&
+    /(slides?|presentations?|powerpoint|keynote|pitch\s*deck|slidedeck|deck)/i.test(q) &&
     !q.includes('about') &&
     !q.includes('for') &&
-    !q.includes('on')
+    !q.includes('on') &&
+    !q.includes('regarding')
   ) {
     return [
       {
@@ -552,19 +579,19 @@ export const getAutonomousQuestionsForQuery = (query: string): ClarificationQues
         title: "What is the primary topic and focus for this presentation?",
         multiSelect: false,
         options: [
-          { id: 'simple_overview', label: 'Simple Executive Briefing & Key Takeaways' },
-          { id: 'deep_dive', label: 'More comprehensive Deep Dive & Research Presentation' },
-          { id: 'keynote', label: 'Keynote & Conference Presentation' },
-          { id: 'training', label: 'Educational Workshop & Training Module' },
+          { id: 'ai_tech', label: 'AI Platform & Cloud Architecture' },
+          { id: 'simple_overview', label: 'Executive Business Strategy Briefing' },
+          { id: 'deep_dive', label: 'Research & Product Pitch Presentation' },
+          { id: 'training', label: 'Educational Workshop & Technical Module' },
         ],
       },
       {
         id: 'presentation_depth',
-        title: "What level of detail would you prefer?",
+        title: "What level of detail and slide format do you prefer?",
         multiSelect: false,
         options: [
-          { id: 'simple', label: 'Simple & concise (High-level talking points)' },
-          { id: 'more_detailed', label: 'More in-depth & detailed (Full slide notes & background context)' },
+          { id: 'simple', label: '5-Slide Concise Overview (Punchy high-level points)' },
+          { id: 'more_detailed', label: '10-Slide Comprehensive Deck (Full speaker notes & deep dive)' },
         ],
       },
     ];
@@ -581,6 +608,29 @@ export const detectIntentMode = (
   userSelectedMode: 'chat' | 'agent' = 'chat'
 ): { mode: 'chat' | 'agent'; isAmbiguous?: boolean; isExplicitDocGeneration?: boolean; taskAnalysis?: TaskReasoningAnalysis } => {
   const q = query.toLowerCase().trim();
+
+  // Pure conversational or informational queries should never trigger agent generation mode
+  const isPureChatQuery =
+    q === 'hello' ||
+    q === 'hi' ||
+    q === 'hey' ||
+    q === 'how are you' ||
+    q === 'good morning' ||
+    q === 'good afternoon' ||
+    q === 'good evening' ||
+    q.startsWith('hello') ||
+    q.startsWith('hi ') ||
+    q.startsWith('hey ') ||
+    q.startsWith('what is') ||
+    q.startsWith('what are') ||
+    q.startsWith('who is') ||
+    q.startsWith('tell me about') ||
+    q.startsWith('tell me the best') ||
+    q.startsWith('can you explain');
+
+  if (isPureChatQuery && userSelectedMode !== 'agent') {
+    return { mode: 'chat', isExplicitDocGeneration: false };
+  }
 
   // 1. Ambiguous cases: "Can you look at my resume?", "Look at my cv", etc.
   const isAmbiguousLookAtDoc =
@@ -616,7 +666,6 @@ export const detectIntentMode = (
     (docCreationVerbs.test(q) && targetDocNouns.test(q)) ||
     (docEditingVerbs.test(q) && targetDocNouns.test(q)) ||
     (docConversionVerbs.test(q) && targetDocNouns.test(q)) ||
-    isFlashcardIntent ||
     q.includes('generate a flash card') ||
     q.includes('generate a flashcard') ||
     q.includes('generate flashcards') ||
@@ -646,7 +695,7 @@ export const detectIntentMode = (
 
   const taskAnalysis = analyzeTaskRequest(query);
 
-  if (hasExplicitDocGeneration || taskAnalysis.isTaskRequest) {
+  if (hasExplicitDocGeneration || (taskAnalysis.isTaskRequest && isGenerationVerb)) {
     return { mode: 'agent', isExplicitDocGeneration: true, taskAnalysis };
   }
 
@@ -680,9 +729,24 @@ async function callClientSideGemini(
     userContext += `\n\nLive Search Grounding:\n` + webSearchResults.map((r) => `• ${r.title}: ${r.snippet}`).join('\n');
   }
 
-  const systemPrompt = `You are Kred, the AI agent inside Kred — a sovereign credential intelligence and document synthesis platform. Users work with you to verify credentials, ask questions, synthesize documents (CVs, study plans, flashcards, slide decks, receipts), and create step-by-step task roadmaps to learn or accomplish goals.
+  const systemPrompt = `You are Kred, the AI intelligence inside Kred — a sovereign credential intelligence and document synthesis platform. Users work with you to verify credentials, ask questions, synthesize documents (CVs, study plans, flashcards, slide decks, receipts), and create step-by-step task roadmaps to learn or accomplish goals.
 
-When asked to teach something or create a task / roadmap (e.g. "teach me about X", "create a task for X", "step by step guide for X"):
+OPERATING MODE: ${effectiveMode === 'agent' ? 'AGENT MODE (DELIVERABLE GENERATION)' : 'CHAT MODE (CONVERSATIONAL ONLY)'}
+${effectiveMode === 'chat'
+  ? `You are strictly in conversational CHAT MODE. The user can only chat in this mode.
+- Respond conversationally, answer questions, provide feedback, or greet the user normally.
+- Do NOT generate full document templates, markdown slides, flashcard card decks, receipts, or CV layouts in chat mode.
+- Keep your answers clean, engaging, and conversational in normal prose.`
+  : `You are in AGENT MODE. The user wants you to generate, synthesize, or build a structured deliverable (presentation slides, flashcards, CV/resume, study plan, assignment, receipt, etc.) formatted for the interactive Preview Canvas.
+- Produce the full, structured deliverable using the exact Markdown format required.`
+}
+
+TEMPORAL GROUNDING & DUCKDUCKGO WEB SEARCH INTELLIGENCE:
+- Current Year: 2026 (September 2026).
+- State-of-the-art frontier models in 2026 include Google Gemini 2.0 / 3.0 (3.1/3.8 Flash & Pro), Anthropic Claude 3.5 / 3.7 Sonnet, OpenAI GPT-4o / o1 / o3, DeepSeek-R1 / V3, and Meta Llama 3.3 / 4.
+- When answering questions about top AI models, current tech, news, or web search queries, synthesize live DuckDuckGo search data and deliver up-to-date 2026 rankings and insights. Never cite obsolete models from 2022/2023 (like GPT-3.5 or original Claude 1/2) as current.
+
+${effectiveMode === 'agent' ? `When asked to teach something or create a task / roadmap (e.g. "teach me about X", "create a task for X", "step by step guide for X"):
 Always output a complete, structured Step-by-Step Task Roadmap in Markdown:
 # Task Roadmap: Teach Me [Topic]
 *Step-by-Step Learning & Execution To-Do List*
@@ -697,7 +761,7 @@ Always output a complete, structured Step-by-Step Task Roadmap in Markdown:
 **Tips:** [Pro tip]
 
 ## Step 2: [Step Title]
-...
+...` : ''}
 
 Active Long-Term User Memories:
 ${memoryContext}
@@ -744,9 +808,10 @@ ${credentials.length > 0 ? `User Vault Credentials:\n${userContext}` : ''}`;
     const autoQuestions = getAutonomousQuestionsForQuery(query);
 
     const isDeliverableDoc =
+      effectiveMode === 'agent' &&
       !autoQuestions &&
-      (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration || query.toLowerCase().includes('teach me') || query.toLowerCase().includes('task') || query.toLowerCase().includes('roadmap')) &&
-      (text.includes('# ') || text.includes('## ') || text.includes('### ') || text.length > 100);
+      (intentAnalysis.isExplicitDocGeneration || query.toLowerCase().includes('teach me') || query.toLowerCase().includes('task') || query.toLowerCase().includes('roadmap')) &&
+      (text.includes('# Slide') || text.includes('### Card 1') || text.includes('# Official Sales Receipt') || text.includes('### Professional Summary') || text.includes('# Task Roadmap') || text.length > 250);
 
     return {
       answer: text,
@@ -781,6 +846,26 @@ export const getAiAuditResponse = async (
   const intentAnalysis = detectIntentMode(query, userMode);
   const effectiveMode = intentAnalysis.mode;
 
+  // Check for autonomous clarification questions (instant popup for open-ended requests, works on Vercel & local)
+  const isGreetingOrChat = /^(hello|hi|hey|howdy|good\s+morning|what is|how do|can you explain|tell me the best)/i.test(rawQuery);
+  const autonomousQuestions = (!isGreetingOrChat && (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration))
+    ? getAutonomousQuestionsForQuery(rawQuery)
+    : undefined;
+
+  if (autonomousQuestions && autonomousQuestions.length > 0) {
+    const isSlideRequest = /(slides?|presentations?|powerpoint|keynote|pitch\s*deck|slidedeck|deck)/i.test(rawQuery);
+    return {
+      answer: isSlideRequest
+        ? "I can synthesize a high-impact presentation slide deck for you. Let's configure your exact specifications:"
+        : "I can help generate this deliverable for you. Let's configure your specifications:",
+      sources: ['Kred Agent Engine'],
+      provider: 'kred-clarification-engine',
+      questions: autonomousQuestions,
+      mode: 'agent',
+      isDocument: false,
+    };
+  }
+
   // Get all credentials or filter by selected ones
   const allCredentials = dbService.getCredentials();
   const credentials = options.selectedCredentialIds && options.selectedCredentialIds.length > 0
@@ -811,21 +896,23 @@ export const getAiAuditResponse = async (
   let webSearchResults: WebSearchResult[] = [];
   const needsWebSearch =
     options.webSearch ||
-    q.startsWith('search ') ||
-    q.startsWith('search web') ||
-    q.includes('search duckduckgo') ||
-    q.includes('latest news') ||
-    q.includes('current ranking') ||
-    q.includes('who is') ||
-    q.includes('what is the latest');
+    /search|duckduckgo|latest|recent|news|current|today|2025|2026|best|top|model|ai\s*model|llm|ranking|compare|versus|\bvs\b|who is|what is|when is|where is|how is|price|rate|release|announcement/i.test(rawQuery) ||
+    q.startsWith('search') ||
+    q.includes('tell me the best') ||
+    q.includes('best ai model');
 
   if (needsWebSearch) {
     try {
-      const cleanSearchQuery = rawQuery.replace(
-        /^(search\s+(the\s+)?web\s+for|search\s+duckduckgo\s+for|search\s+for|search)\s+/i,
+      let cleanSearchQuery = rawQuery.replace(
+        /^(can you\s+)?(please\s+)?(search\s+(the\s+)?web\s+for|search\s+duckduckgo\s+for|search\s+for|search|tell me\s+about\s+|tell me\s+the\s+|tell me\s+)\s*/i,
         ''
-      );
-      const searchData = await searchDuckDuckGo(cleanSearchQuery);
+      ).trim();
+
+      if (/best ai model|top ai model|best llm|top llm/i.test(cleanSearchQuery)) {
+        cleanSearchQuery = `${cleanSearchQuery} 2026 Claude Gemini GPT-4o DeepSeek`;
+      }
+
+      const searchData = await searchDuckDuckGo(cleanSearchQuery || rawQuery);
       webSearchResults = searchData.results || [];
     } catch (searchErr) {
       console.warn('DuckDuckGo search error:', searchErr);
@@ -881,9 +968,10 @@ export const getAiAuditResponse = async (
       const effectiveQuestions = (data.questions && data.questions.length > 0) ? data.questions : autoQuestions;
 
       const isDeliverableDoc =
+        effectiveMode === 'agent' &&
         !effectiveQuestions &&
-        (effectiveMode === 'agent' || intentAnalysis.isExplicitDocGeneration) &&
-        (data.text.includes('# ') || data.text.includes('## ') || data.text.includes('### ') || data.text.includes('Card') || data.text.includes('Front') || data.text.includes('Slide') || data.text.includes('Receipt') || data.text.length > 150);
+        (intentAnalysis.isExplicitDocGeneration || Boolean(data.isDocument)) &&
+        (data.text.includes('# Slide') || data.text.includes('### Card 1') || data.text.includes('# Official Sales Receipt') || data.text.includes('### Professional Summary') || data.text.includes('# Task Roadmap'));
 
       return {
         answer: data.text,

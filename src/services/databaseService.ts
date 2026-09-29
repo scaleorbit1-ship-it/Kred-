@@ -590,12 +590,19 @@ class DatabaseService {
     const threads = [...this.cachedThreads];
     const newThread: ChatThread = {
       id: `t_${Date.now()}`,
-      title: initialPrompt ? initialPrompt.slice(0, 36) + '...' : 'New AI Conversation',
+      title: 'New chat',
       messages: [],
       updatedAt: 'Just now',
     };
     threads.unshift(newThread);
     this.saveThreads(threads);
+
+    if (initialPrompt) {
+      this.addMessage(newThread.id, { role: 'user', text: initialPrompt });
+      const generatedTitle = initialPrompt.length > 34 ? initialPrompt.slice(0, 34) + '...' : initialPrompt;
+      this.renameThread(newThread.id, generatedTitle);
+    }
+
     return newThread;
   }
 

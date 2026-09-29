@@ -27,7 +27,7 @@ export const searchDuckDuckGo = async (query: string): Promise<WebSearchResponse
     return { query: '', results: [] };
   }
 
-  // 1. Try server-side DuckDuckGo proxy endpoint first
+  // 1. Try server-side search proxy endpoint first
   try {
     const serverRes = await fetch(`/api/search?q=${encodeURIComponent(cleanQuery)}`);
     if (serverRes.ok) {
@@ -37,7 +37,67 @@ export const searchDuckDuckGo = async (query: string): Promise<WebSearchResponse
       }
     }
   } catch (err) {
-    console.warn('Backend search proxy unavailable, using client-side DuckDuckGo API:', err);
+    console.warn('Backend search proxy unavailable:', err);
+  }
+
+  // 2. Direct client-side Tavily API call if Tavily key is available
+  const tavilyKey =
+    (import.meta as any).env?.VITE_TAVILY_API_KEY ||
+    (import.meta as any).env?.TAVILY_API_KEY ||
+    (typeof window !== 'undefined' && (window as any).process?.env?.TAVILY_API_KEY) ||
+    '';
+
+  if (tavilyKey) {
+    try {
+      const tavilyRes = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_key: tavilyKey,
+          query: cleanQuery,
+          search_depth: 'advanced',
+          include_answer: true,
+          max_results: 6,
+        }),
+      });
+
+      if (tavilyRes.ok) {
+        const json = await tavilyRes.json();
+        const results: WebSearchResult[] = [];
+
+        if (json.answer) {
+          results.push({
+            title: `Tavily Search Summary for "${cleanQuery}"`,
+            snippet: json.answer,
+            url: 'https://tavily.com',
+            source: 'Tavily AI Intelligence',
+          });
+        }
+
+        if (Array.isArray(json.results)) {
+          json.results.forEach((item: any) => {
+            if (item.title && item.url) {
+              results.push({
+                title: item.title,
+                snippet: item.content || item.snippet || item.title,
+                url: item.url,
+                source: 'Tavily Web Search',
+              });
+            }
+          });
+        }
+
+        if (results.length > 0) {
+          return {
+            query: cleanQuery,
+            results,
+            abstract: json.answer,
+          };
+        }
+      }
+    } catch (clientTavilyErr) {
+      console.warn('Direct client-side Tavily call failed:', clientTavilyErr);
+    }
   }
 
   // 2. Direct client-side DuckDuckGo Instant Answer API

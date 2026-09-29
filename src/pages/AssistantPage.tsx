@@ -1376,7 +1376,13 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
     // Decide the mode based on INTENT, not just presence of an uploaded file.
     const intentAnalysis = detectIntentMode(text, chatMode);
-    const effectiveMode = intentAnalysis.mode;
+    let effectiveMode = intentAnalysis.mode;
+
+    // When the user tells the AI to create/generate something, switch the UI to agent mode
+    if (intentAnalysis.isExplicitDocGeneration && chatMode !== 'agent') {
+      setChatMode('agent');
+      effectiveMode = 'agent';
+    }
 
     const userMsg: ChatMessage = {
       id: `m_${Date.now()}_u`,
@@ -1389,22 +1395,25 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
 
     if (!targetThreadId) {
       targetThreadId = `t_${Date.now()}`;
-      const newTitle = text.length > 34 ? text.slice(0, 34) + '...' : text;
       const newThread: ChatThread = {
         id: targetThreadId,
-        title: newTitle,
+        title: 'New chat',
         updatedAt: 'Just now',
         messages: [userMsg],
       };
       const updated = [newThread, ...dbService.getThreads()];
       dbService.saveThreads(updated);
       setActiveThreadId(targetThreadId);
+
+      // After the user messages the AI, update thread title from 'New chat' to descriptive prompt name
+      const generatedTitle = text.length > 34 ? text.slice(0, 34) + '...' : text;
+      dbService.renameThread(targetThreadId, generatedTitle);
     } else {
       const currentThread = threads.find((t) => t.id === targetThreadId);
       dbService.addMessage(targetThreadId, { role: 'user', text });
 
       // After user messages the AI, if the chat is named "New chat" or had 0 messages, give it a descriptive name
-      if (!currentThread || currentThread.title === 'New chat' || currentThread.messages.length === 0) {
+      if (!currentThread || currentThread.title.toLowerCase() === 'new chat' || currentThread.messages.length <= 1) {
         const generatedTitle = text.length > 34 ? text.slice(0, 34) + '...' : text;
         dbService.renameThread(targetThreadId, generatedTitle);
       }
@@ -1456,84 +1465,59 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         }
       }
 
-      // Open Preview Canvas if the user requested canvas OR asked to generate a deliverable
+      // Open Preview Canvas ONLY IN AGENT MODE (Chat mode is strictly conversational)
       const lowerAnswer = aiResult.answer.toLowerCase();
       const lowerQuery = text.toLowerCase();
+      const isAgentMode = effectiveMode === 'agent';
+
+      const isGenerationVerb = /\b(generate|create|make|build|write|draft|show|synthesize|compose)\b/i.test(text);
 
       const isFlashcards =
-        lowerAnswer.includes('flashcard') ||
-        lowerAnswer.includes('study cards') ||
-        lowerQuery.includes('flashcard') ||
-        lowerQuery.includes('flash card') ||
-        lowerQuery.includes('study card') ||
-        lowerQuery.includes('cards') ||
-        (lowerAnswer.includes('front:') && lowerAnswer.includes('back:'));
+        isAgentMode &&
+        ((lowerAnswer.includes('front:') && lowerAnswer.includes('back:')) ||
+          (isGenerationVerb && (lowerQuery.includes('flashcard') || lowerQuery.includes('flash card'))));
 
       const isReceipt =
-        lowerAnswer.includes('receipt') ||
-        lowerAnswer.includes('#rec-') ||
-        lowerAnswer.includes('invoice') ||
-        lowerAnswer.includes('#inv-') ||
-        lowerQuery.includes('receipt') ||
-        lowerQuery.includes('invoice') ||
-        lowerQuery.includes('bill');
+        isAgentMode &&
+        (lowerAnswer.includes('#rec-') || lowerAnswer.includes('#inv-') ||
+          (isGenerationVerb && (lowerQuery.includes('receipt') || lowerQuery.includes('invoice'))));
 
       const isSlides =
-        lowerAnswer.includes('presentation slides') ||
-        lowerAnswer.includes('slide 1') ||
-        lowerAnswer.includes('01 — title') ||
-        lowerQuery.includes('slide') ||
-        lowerQuery.includes('presentation') ||
-        lowerQuery.includes('pitch deck');
+        isAgentMode &&
+        (lowerAnswer.includes('slide 1') || lowerAnswer.includes('## slide') ||
+          (isGenerationVerb && (lowerQuery.includes('slide') || lowerQuery.includes('presentation') || lowerQuery.includes('pitch deck'))));
 
       const isCv =
+        isAgentMode &&
         !isFlashcards &&
         !isSlides &&
         !isReceipt &&
-        (lowerAnswer.includes('curriculum vitae') ||
-          lowerAnswer.includes('professional summary') ||
-          lowerAnswer.includes('work experience') ||
-          lowerQuery.includes('cv') ||
-          lowerQuery.includes('resume') ||
-          lowerQuery.includes('curriculum vitae'));
+        ((lowerAnswer.includes('# ') && (lowerAnswer.includes('### professional summary') || lowerAnswer.includes('### work experience'))) ||
+          (isGenerationVerb && (lowerQuery.includes('cv') || lowerQuery.includes('resume'))));
 
       const isStudyPlan =
+        isAgentMode &&
         !isFlashcards &&
         !isSlides &&
         !isReceipt &&
         !isCv &&
-        (lowerAnswer.includes('student study plan') ||
-          lowerAnswer.includes('academic roadmap') ||
-          lowerAnswer.includes('task roadmap') ||
-          lowerAnswer.includes('step-by-step') ||
-          lowerAnswer.includes('## step 1') ||
-          lowerQuery.includes('teach me') ||
-          lowerQuery.includes('create a task') ||
-          lowerQuery.includes('student plan') ||
-          lowerQuery.includes('study plan') ||
-          lowerQuery.includes('task roadmap') ||
-          lowerQuery.includes('to-do list') ||
-          lowerQuery.includes('roadmap'));
+        ((lowerAnswer.includes('# task roadmap') || lowerAnswer.includes('## step 1') || lowerAnswer.includes('student study plan')) &&
+          (isGenerationVerb || lowerQuery.includes('teach me') || lowerQuery.includes('study plan') || lowerQuery.includes('roadmap')));
 
       const isCoverLetter =
-        lowerAnswer.includes('application letter') ||
-        lowerAnswer.includes('statement of purpose') ||
-        lowerQuery.includes('cover letter') ||
-        lowerQuery.includes('statement of purpose') ||
-        lowerQuery.includes('sop');
+        isAgentMode &&
+        (lowerAnswer.includes('statement of purpose') ||
+          (isGenerationVerb && (lowerQuery.includes('cover letter') || lowerQuery.includes('statement of purpose'))));
 
-      const isDeliverable = isFlashcards || isSlides || isReceipt || isCv || isStudyPlan || isCoverLetter;
+      const isDeliverable = isAgentMode && (isFlashcards || isSlides || isReceipt || isCv || isStudyPlan || isCoverLetter || Boolean(aiResult.isDocument));
 
       const userExplicitlyRequestedCanvas =
-        /\b(canvas|preview|deck|slides|flashcard|flash card|receipt|invoice|cv|resume)\b/i.test(text) ||
-        /\b(open canvas|open in canvas|show canvas|show in canvas|preview canvas|preview in canvas|in canvas|open the canvas|on canvas|in the canvas)\b/i.test(text);
-
-      const isGenerationVerb = /\b(generate|create|make|build|write|draft|show|synthesize|compose)\b/i.test(text);
+        /\b(canvas|preview canvas|open canvas|open in canvas|show in canvas|in canvas)\b/i.test(text);
 
       let docTitle = 'Generated Deliverable';
       if (isFlashcards) {
         const topicMatch = text.match(/(?:about|for|on|regarding)\s+([a-zA-Z\s]+)/i);
-        const subject = topicMatch ? topicMatch[1].trim() : (aiResult.answer.match(/#+\s*([^\n]+)/)?.[1]?.replace(/flashcards?/i, '').trim() || 'Biology & Science');
+        const subject = topicMatch ? topicMatch[1].trim() : (aiResult.answer.match(/#+\s*([^\n]+)/)?.[1]?.replace(/flashcards?/i, '').trim() || 'Core Concepts');
         docTitle = `Study Flashcards: ${subject.charAt(0).toUpperCase() + subject.slice(1)}`;
       } else if (isSlides) {
         const topicMatch = text.match(/(?:about|for|on|regarding)\s+([a-zA-Z\s]+)/i);
@@ -1549,8 +1533,6 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         docTitle = 'Application Statement of Purpose / Cover Letter';
       }
 
-      const shouldOpenCanvas = userExplicitlyRequestedCanvas || (isGenerationVerb && isDeliverable) || effectiveMode === 'agent' || isDeliverable;
-
       const docType = isSlides
         ? 'slides'
         : isFlashcards
@@ -1565,7 +1547,14 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
         ? 'cover_letter'
         : 'document';
 
-      if (isDeliverable && !aiResult.answer.startsWith('⚠️') && !aiResult.questions?.length) {
+      // Canvas opens ONLY in agent mode when deliverable/canvas is requested, NEVER on chat mode
+      const shouldOpenCanvas =
+        isAgentMode &&
+        !aiResult.questions?.length &&
+        !aiResult.answer.startsWith('⚠️') &&
+        (userExplicitlyRequestedCanvas || isDeliverable || intentAnalysis.isExplicitDocGeneration);
+
+      if (isAgentMode && isDeliverable && !aiResult.answer.startsWith('⚠️') && !aiResult.questions?.length) {
         aiMsg.actionLabel = isFlashcards
           ? 'Open Flashcard Deck in Canvas'
           : isSlides
@@ -1577,12 +1566,12 @@ export const AssistantPage: React.FC<AssistantPageProps> = ({
           : 'Open Deliverable in Canvas';
       }
 
-      if (!aiResult.questions?.length && shouldOpenCanvas && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
+      if (shouldOpenCanvas) {
         openCanvas(aiResult.answer, docTitle, docType);
       }
 
-      // Automatically add generated deliverables / study plans / task roadmaps to the Tasks section
-      if ((isDeliverable || isStudyPlan || isCv || effectiveMode === 'agent') && !aiResult.answer.startsWith('⚠️')) {
+      // Automatically add generated deliverables / study plans / task roadmaps to Tasks section ONLY in agent mode
+      if (isAgentMode && isDeliverable && !aiResult.answer.startsWith('⚠️')) {
         dbService.addTask({
           title: docTitle || `Task: ${text.slice(0, 35)}...`,
           description: `Generated ${docType.replace('_', ' ')} roadmap & agent task.`,

@@ -26,14 +26,27 @@ const getSystemPrompt = (
   hasCredentials: boolean = false,
   memoryContext: string = ''
 ) => {
-  return `You are Kred, the AI agent inside Kred — a sovereign credential intelligence and document synthesis platform. Users upload academic and professional credentials into a locally encrypted vault and work with you to verify them, reason about opportunities (admissions, scholarships, hiring, contracting), and synthesize production-grade documents from their own real history.
+  return `You are Kred, the AI intelligence inside Kred — a sovereign credential intelligence and document synthesis platform. Users upload academic and professional credentials into a locally encrypted vault and work with you to verify them, reason about opportunities (admissions, scholarships, hiring, contracting), and synthesize production-grade documents from their own real history.
+
+════════════════════════════════════════
+OPERATING MODE: ${mode === 'agent' ? 'AGENT MODE (DELIVERABLE GENERATION)' : 'CHAT MODE (CONVERSATIONAL ONLY)'}
+════════════════════════════════════════
+${mode === 'chat'
+  ? `You are strictly in conversational CHAT MODE.
+- The user is having a conversation with you. On chat mode, the user can only chat.
+- Greet the user normally when they say hello, hi, hey, or good morning.
+- Answer questions, give feedback, discuss topics, or search the web conversationally in standard markdown text and paragraphs.
+- DO NOT generate full document files, interactive flashcard card decks, presentation slide decks, invoices, or CV templates in chat mode.
+- NEVER format your chat replies as document templates.`
+  : `You are in AGENT MODE.
+- The user has requested autonomous document synthesis or generation.
+- Produce the full, production-grade deliverable (presentation slides, flashcards, CV/resume, study roadmap, receipt, etc.) in clean, valid Markdown formatted for the interactive Preview Canvas.`
+}
 
 ════════════════════════════════════════
 IDENTITY & ROLE
 ════════════════════════════════════════
-You are not a generic chatbot. You are a credential-aware document synthesis agent. Your value is that everything you produce is grounded in the user's actual uploaded material — never invented, never generic. Think of yourself as a careful editor and document specialist who happens to also verify academic/professional claims, not as a "creative writing" assistant.
-
-Tone: precise, competent, low-friction. Brief and direct in chat. Never over-explain what you're about to do — just do it once intent is clear.
+Tone: precise, competent, low-friction. Brief and direct in chat. Never over-explain what you're about to do.
 
 ════════════════════════════════════════
 WHAT YOU CAN DO
@@ -45,21 +58,10 @@ WHAT YOU CAN DO
 - Verify academic equivalency (GPA scale conversion, credit hours, course prerequisites) against WES, UK ENIC, and ECTS standards
 - Ground time-sensitive claims (admissions deadlines, visa rules, salary benchmarks) against live web verification rather than relying on training knowledge
 
+${mode === 'agent' ? `════════════════════════════════════════
+HOW YOU GENERATE A DOCUMENT (AGENT MODE)
 ════════════════════════════════════════
-HOW YOU DECIDE WHAT TO DO (every message)
-════════════════════════════════════════
-1. Default to a normal conversational reply for greetings, questions, feedback requests, or general inquiries.
-2. CRITICAL GENERATION DIRECTIVE: When the user asks to generate, create, make, build, or synthesize a document (flashcards, presentation/slides, receipt, invoice, CV/resume, cover letter, study plan) — for example: "generate a flash card for me about biology" or "make slides on AI":
-   YOU MUST DIRECTLY AND IMMEDIATELY GENERATE THE COMPLETE DELIVERABLE IN FULL MARKDOWN FORMAT.
-   NEVER ask preliminary questions, NEVER ask for more details or topic preferences, NEVER prompt an intake form. Pick the most authoritative foundational concepts and produce the full document right away so the user can interact with it on the Preview Canvas.
-3. A file upload or an @mentioned credential is context, not an instruction — work from it when asked to build something grounded in user credentials.
-4. Only ask a clarifying question if the user's intent is completely ambiguous (e.g. "look at this"). When intent to generate is clear, ALWAYS GENERATE IMMEDIATELY.
-
-════════════════════════════════════════
-HOW YOU GENERATE A DOCUMENT
-════════════════════════════════════════
-1. When asked to generate a document (flashcards, slides, receipt, CV, etc.), IMMEDIATELY generate the complete structured deliverable without stalling or asking redundant questions.
-2. Follow these exact structural standards for the requested deliverable type:
+1. Immediately generate the complete structured deliverable in Markdown without stalling:
 
 • FLASHCARD DECK (Interactive Flashcards):
 Always format 3 to 5 comprehensive flashcards with clear Front, Back, and Key Takeaway so the preview canvas can parse and render them into authentic 3D interactive flashcards:
@@ -139,7 +141,7 @@ Always format with standard professional sections:
 
 ### Core Skills & Competencies
 [Skill 1], [Skill 2], [Skill 3], [Skill 4], [Skill 5]
-\`\`\`
+\`\`\`` : ''}
 
 3. Build structured data first — the facts, in a clean schema — before any layout or prose.
 4. Never fabricate credentials. If the user provided credentials in the vault, ground the document in those records.
@@ -254,6 +256,60 @@ async function performLiveWebSearch(query: string): Promise<Array<{ title: strin
   const q = query.trim();
   if (!q) return [];
   const results: Array<{ title: string; snippet: string; url: string; source?: string }> = [];
+
+  // Backend 0: Tavily Search API (if TAVILY_API_KEY is configured)
+  const tavilyApiKey = process.env.TAVILY_API_KEY || (process.env as any).VITE_TAVILY_API_KEY;
+  if (tavilyApiKey) {
+    try {
+      const tavilyRes = await fetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          api_key: tavilyApiKey,
+          query: q,
+          search_depth: 'advanced',
+          include_answer: true,
+          max_results: 7,
+        }),
+        signal: AbortSignal.timeout(6000),
+      });
+
+      if (tavilyRes.ok) {
+        const data = await tavilyRes.json();
+        if (data) {
+          if (data.answer) {
+            results.push({
+              title: `Tavily Web Search Summary for "${q}"`,
+              snippet: data.answer,
+              url: 'https://tavily.com',
+              source: 'Tavily AI Web Intelligence',
+            });
+          }
+
+          if (Array.isArray(data.results)) {
+            data.results.forEach((item: any) => {
+              if (item.title && item.url) {
+                results.push({
+                  title: item.title,
+                  snippet: item.content || item.snippet || `Live web search result for ${item.title}`,
+                  url: item.url,
+                  source: 'Tavily Web Search',
+                });
+              }
+            });
+          }
+
+          if (results.length > 0) {
+            return results;
+          }
+        }
+      }
+    } catch (tavilyErr: any) {
+      console.warn('Tavily Search API warning, falling back to DuckDuckGo:', tavilyErr.message);
+    }
+  }
 
   // Backend 1: DuckDuckGo HTML & Lite Search
   try {
@@ -445,6 +501,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
     service: 'KRED Sovereign Engine',
     timestamp: new Date().toISOString(),
     geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    tavilyConfigured: Boolean(process.env.TAVILY_API_KEY || (process.env as any).VITE_TAVILY_API_KEY),
     nvidiaConfigured: Boolean(process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY),
   });
 });
@@ -829,24 +886,27 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       return;
     }
 
-    // Check for autonomous clarification questions (instant popup style for open-ended requests)
-    const autonomousClarification = getAutonomousClarificationQuestions(message);
-    if (autonomousClarification) {
-      res.json({
-        text: autonomousClarification.text,
-        sources: [],
-        actionLabel: undefined,
-        provider: 'kred-clarification-engine',
-        questions: autonomousClarification.questions,
-      });
-      return;
+    // Check for autonomous clarification questions only for creation/generation requests, never for pure chat or greetings
+    const isGreetingOrChat = /^(hello|hi|hey|howdy|good\s+morning|what is|how do|can you explain|tell me the best)/i.test(message.trim());
+    if (!isGreetingOrChat && (mode === 'agent' || /(generate|create|make|build|write|draft|slides?|presentation|pitch\s*deck|flashcard|cv|resume)/i.test(message))) {
+      const autonomousClarification = getAutonomousClarificationQuestions(message);
+      if (autonomousClarification) {
+        res.json({
+          text: autonomousClarification.text,
+          sources: [],
+          actionLabel: undefined,
+          provider: 'kred-clarification-engine',
+          questions: autonomousClarification.questions,
+        });
+        return;
+      }
     }
 
     // Autonomous Web Search Intent Detection - Searches autonomously without needing user toggle
     const isSearchNeeded = Boolean(
       webSearch ||
       (Array.isArray(searchResults) && searchResults.length > 0) ||
-      /search|duckduckgo|latest|recent|news|current|today|2025|2026|connect|who is|what is|when is|where is|how is|winner|release|announce|conference|election|score|meta|apple|google|openai|anthropic|chevening|wes|enic|ielts|toefl|scholarship|requirements|criteria|price|ranking|top|update|guide|how to/i.test(message) ||
+      /search|duckduckgo|latest|recent|news|current|today|2025|2026|connect|who is|what is|when is|where is|how is|winner|release|announce|conference|election|score|meta|apple|google|openai|anthropic|chevening|wes|enic|ielts|toefl|scholarship|requirements|criteria|price|ranking|top|update|guide|how to|best|model|ai|llm|deepseek|claude|gemini|gpt/i.test(message) ||
       message.endsWith('?') ||
       (message.split(' ').length >= 3 && !message.startsWith('#'))
     );
@@ -855,7 +915,10 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     let activeSearchResults: Array<{ title: string; snippet: string; url: string; source?: string }> = Array.isArray(searchResults) ? [...searchResults] : [];
     if (isSearchNeeded && activeSearchResults.length === 0) {
       try {
-        const cleanQuery = message.replace(/^(can you\s+)?(please\s+)?(search(\s+the\s+web|\s+duckduckgo)?\s+(for\s+)?|what is the latest on\s+|who is\s+|tell me about\s+)/i, '').trim();
+        let cleanQuery = message.replace(/^(can you\s+)?(please\s+)?(search(\s+the\s+web|\s+duckduckgo|\s+tavily)?\s+(for\s+)?|what is the latest on\s+|who is\s+|tell me about\s+|tell me\s+the\s+|tell me\s+)\s*/i, '').trim();
+        if (/best.*ai.*model|top.*ai.*model|best.*llm|top.*llm|best.*chat.*model|best ai chat|top ai chat/i.test(message)) {
+          cleanQuery = `${cleanQuery} 2026 Claude 3.7 Gemini 3.0 GPT-4o DeepSeek-R1`;
+        }
         activeSearchResults = await performLiveWebSearch(cleanQuery || message);
       } catch (searchErr) {
         console.warn('Live search in /api/chat failed:', searchErr);
@@ -885,12 +948,14 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
     const systemPrompt =
       getSystemPrompt(mode, userContext, hasCredentials, memoryContext) +
-      `\n\nTEMPORAL GROUNDING & SEARCH INTELLIGENCE:
+      `\n\nTEMPORAL GROUNDING & DUCKDUCKGO WEB SEARCH INTELLIGENCE:
 - Current Year: 2026 (September 2026).
-- When asked about current events, technology conferences (such as Meta Connect, Apple events, Google I/O, AI announcements, Llama models, Gemini models, hardware releases), news, sports, or recent developments:
+- State-of-the-art frontier models in 2026 include Google Gemini 2.0 / 3.0 (3.1/3.8 Flash & Pro), Anthropic Claude 3.5 / 3.7 Sonnet, OpenAI GPT-4o / o1 / o3, DeepSeek-R1 / V3, and Meta Llama 3.3 / 4.
+- When asked about current AI models, technology, news, rankings, or comparisons (e.g., "tell me the best ai model", "what is the top LLM"):
   1. Treat 2026 as the present.
-  2. Synthesize facts directly from the live web search results and your real-time grounding.
-  3. Never describe 2024 or 2023 as current. Provide intelligent, direct, factual, and articulate answers for 2026.`;
+  2. Synthesize facts directly from the live DuckDuckGo web search results and your real-time grounding.
+  3. Detail current top models (Gemini 3.0 / Flash, Claude 3.5/3.7 Sonnet, GPT-4o, DeepSeek-R1, Llama 3.3).
+  4. Never cite obsolete models from 2022/2023 (like GPT-3.5 or original Claude 1/2) as current. Provide a sharp, up-to-date, articulate ranking based on DuckDuckGo web search grounding.`;
 
     // Helper to extract clarification questions, interactive forms, and action labels
     const formatAiResponse = (rawText: string, providerName: string, additionalSources: string[] = []) => {
@@ -994,30 +1059,14 @@ app.post('/api/chat', async (req: Request, res: Response) => {
       let interactiveForm: any = undefined;
 
       const isDocument =
-        mode === 'agent' ||
-        cleanText.toLowerCase().includes('curriculum vitae') ||
-        cleanText.toLowerCase().includes('resume') ||
-        cleanText.toLowerCase().includes('flashcard') ||
-        cleanText.toLowerCase().includes('receipt') ||
-        cleanText.toLowerCase().includes('invoice') ||
-        cleanText.toLowerCase().includes('slide') ||
-        cleanText.toLowerCase().includes('presentation') ||
-        cleanText.toLowerCase().includes('# assignment') ||
-        cleanText.toLowerCase().includes('# presentation') ||
-        cleanText.toLowerCase().includes('pitch deck') ||
-        cleanText.toLowerCase().includes('infographic') ||
-        cleanText.toLowerCase().includes('architecture diagram') ||
-        cleanText.toLowerCase().includes('visual graphic') ||
-        message.toLowerCase().includes('cv') ||
-        message.toLowerCase().includes('resume') ||
-        message.toLowerCase().includes('flashcard') ||
-        message.toLowerCase().includes('receipt') ||
-        message.toLowerCase().includes('invoice') ||
-        message.toLowerCase().includes('slide') ||
-        message.toLowerCase().includes('pitch deck') ||
-        message.toLowerCase().includes('graphics') ||
-        message.toLowerCase().includes('graphic') ||
-        message.toLowerCase().includes('presentation');
+        mode === 'agent' &&
+        (cleanText.includes('# Slide') ||
+         cleanText.includes('### Card 1') ||
+         cleanText.includes('# Official Sales Receipt') ||
+         cleanText.includes('### Professional Summary') ||
+         cleanText.includes('# Task Roadmap') ||
+         cleanText.includes('## Slide 1') ||
+         cleanText.includes('### Card 2'));
 
       let sources: string[] = [];
       if (isSearchNeeded || activeSearchResults.length > 0) {

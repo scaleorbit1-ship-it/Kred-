@@ -33,7 +33,7 @@ import {
 } from 'lucide-react';
 import { KredLogo } from './KredLogo';
 import BoltHorizon from './BoltHorizon';
-import { getAiAuditResponse } from '../services/aiChatService';
+import { getAiAuditResponse, detectIntentMode } from '../services/aiChatService';
 import { dbService } from '../services/databaseService';
 import { authService, AuthUser } from '../services/authService';
 
@@ -301,9 +301,14 @@ export const CleanLandingPage: React.FC<CleanLandingPageProps> = ({
     // Record into local database
     dbService.addMessage('t_hero_session', { role: 'user', text: cleanPrompt });
 
+    const intentAnalysis = detectIntentMode(cleanPrompt, chatMode);
+    if (intentAnalysis.isExplicitDocGeneration && chatMode !== 'agent') {
+      setChatMode('agent');
+    }
+
     try {
       const response = await getAiAuditResponse(cleanPrompt, {
-        mode: chatMode,
+        mode: intentAnalysis.mode,
         selectedCredentialIds,
         webSearch: isWebSearchActive,
       });
